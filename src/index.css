@@ -1,0 +1,152 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-text font-body;
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Roboto", "Noto Sans JP", sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary text-white px-4 py-2 rounded-card hover:bg-primary/90 transition-all shadow-subtle hover:shadow-card font-body text-body;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-200 text-text px-4 py-2 rounded-card hover:bg-gray-300 transition-all shadow-subtle font-body text-body;
+  }
+
+  .card {
+    @apply bg-white border border-border rounded-card-lg shadow-card p-6;
+  }
+
+  .input-field {
+    @apply border border-border rounded-card px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary font-body text-body;
+  }
+
+  /* アニメーション定義 */
+  .animate-fadeIn {
+    animation: fadeIn 0.3s ease-out;
+  }
+  
+  .animate-slideUp {
+    animation: slideUp 0.4s ease-out;
+  }
+  
+  .animate-scaleIn {
+    animation: scaleIn 0.3s ease-out;
+  }
+  
+  .animate-celebration {
+    animation: celebration 1s ease-in-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  
+  @keyframes celebration {
+    0%, 100% {
+      transform: scale(1) rotate(0deg);
+    }
+    25% {
+      transform: scale(1.1) rotate(-5deg);
+    }
+    75% {
+      transform: scale(1.1) rotate(5deg);
+    }
+  }
+
+  /* スライダーのスタイル */
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #13AE67;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s;
+  }
+
+  input[type="range"]::-webkit-slider-thumb:hover {
+    background: #0F9456;
+    transform: scale(1.2);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #13AE67;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s;
+  }
+
+  input[type="range"]::-moz-range-thumb:hover {
+    background: #0F9456;
+    transform: scale(1.2);
+  }
+  
+  /* マンダラチャート専用スタイル */
+  .mandala-cell {
+    @apply border-2 border-gray-200 bg-white rounded-card transition-all hover:shadow-card;
+  }
+  
+  .mandala-cell-active {
+    @apply border-primary bg-primary/5;
+  }
+  
+  .mandala-cell-achieved {
+    @apply border-achieved bg-achieved/5;
+  }
+  
+  /* チェックボックスのハート型アイコン */
+  .checkbox-heart {
+    @apply w-6 h-6 cursor-pointer transition-all;
+  }
+  
+  .checkbox-heart:hover {
+    @apply scale-110;
+  }
+  
+  .checkbox-heart-checked {
+    @apply text-achieved;
+  }
+}

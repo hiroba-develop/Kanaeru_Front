@@ -1,0 +1,12 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+export type OperatingProfitSchema = {
+    userId?: string;
+    year?: number;
+    month?: number;
+    operatingProfitTarget?: number;
+    operatingProfitResult?: number;
+};
+

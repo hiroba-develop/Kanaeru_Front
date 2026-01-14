@@ -1,0 +1,388 @@
+import React, { createContext, useContext, useState, useEffect } from "react";
+import type { ReactNode } from "react";
+import type { AuthUser, InitialSetup } from "../types";
+import { setLogoutCallback, setSessionExpiredCallback } from "../utils/apiErrorHandler";
+
+interface AuthContextType {
+  user: AuthUser | null;
+  userSetup: InitialSetup | null;
+  isLoading: boolean;
+  shouldRedirectToLogin: boolean;
+  sessionExpired: boolean; // セッション期限切れフラグを追加
+  clearSessionExpired: () => void; // フラグをクリアする関数
+  login: (
+    email: string,
+    password: string,
+    userId?: string,
+    role?: string,
+    token?: string,
+    name?: string
+  ) => Promise<void>;
+  completeSetup: (setupData: InitialSetup) => void;
+  updateUserSetup: (setupData: Partial<InitialSetup>) => void;
+  loadUserSetup: () => Promise<void>;
+  logout: () => Promise<void>;
+  // ユーザー切り替え機能
+  managedUsers: AuthUser[];
+  selectedUser: AuthUser | null;
+  switchUser: (userId: string) => void;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// cookieを操作するためのユーティリティ関数
+const setCookie = (name: string, value: string, hours: number = 24) => {
+  const expires = new Date();
+  expires.setTime(expires.getTime() + hours * 60 * 60 * 1000);
+  document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;SameSite=Strict`;
+};
+
+const getCookie = (name: string): string | null => {
+  const nameEQ = name + "=";
+  const ca = document.cookie.split(";");
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === " ") c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+  }
+  return null;
+};
+
+const deleteCookie = (name: string) => {
+  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Strict`;
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+};
+
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [userSetup, setUserSetup] = useState<InitialSetup | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [shouldRedirectToLogin, setShouldRedirectToLogin] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [managedUsers, setManagedUsers] = useState<AuthUser[]>([]);
+  const [selectedUser, setSelectedUser] = useState<AuthUser | null>(null);
+
+  // セッション期限切れフラグをクリアする関数
+  const clearSessionExpired = () => {
+    setSessionExpired(false);
+  };
+
+  // 401エラー時に呼ばれるログアウト処理
+  const handleSessionExpired = async () => {
+    console.warn('セッションが期限切れになりました。');
+    setSessionExpired(true);
+    
+    // ログアウト処理を実行（APIは呼ばずにローカルのみクリア）
+    setUser(null);
+    setUserSetup(null);
+    setManagedUsers([]);
+    setSelectedUser(null);
+    
+    // Cookieをクリア
+    deleteCookie("userId");
+    deleteCookie("role");
+    deleteCookie("selectedUserId");
+    deleteCookie("authToken");
+    deleteCookie("userName");
+    
+    // ログイン画面へリダイレクト
+    setShouldRedirectToLogin(true);
+  };
+
+  // エラーハンドラーのコールバックを設定
+  useEffect(() => {
+    setLogoutCallback(handleSessionExpired);
+    setSessionExpiredCallback(() => {
+      setSessionExpired(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    const restoreAuthState = async () => {
+      const userId = getCookie("userId");
+      const role = getCookie("role");
+      const selectedUserId = getCookie("selectedUserId");
+      const userName = getCookie("userName");
+  
+      if (!userId) {
+        setShouldRedirectToLogin(true);
+        setIsLoading(false);
+        return;
+      }
+  
+      // Cookieから復元するだけ（APIは呼ばない）
+      const userToSet: AuthUser = {
+        id: userId,
+        email: "", // 後で画面表示時に取得
+        name: userName || "",
+        isSetupComplete: true,
+        createdAt: new Date(),
+        lastLogin: new Date(),
+        role: role || undefined,
+      };
+  
+      setUser(userToSet);
+      setSelectedUser(userToSet);
+      
+      // 管理者の場合の処理
+      if (role === "1" || role === "2") {
+        setManagedUsers([]);
+        if (selectedUserId) {
+          // TODO: 必要に応じて実装
+        }
+      }
+  
+      setIsLoading(false);
+    };
+  
+    restoreAuthState();
+  }, []);
+
+  const login = async (
+    email: string,
+    _password: string,
+    userId?: string,
+    role?: string,
+    token?: string,
+    name?: string
+  ): Promise<void> => {
+    setIsLoading(true);
+    try {
+      if (!userId) {
+        throw new Error("ユーザーIDが提供されていません");
+      }
+  
+      // 最小限の情報のみ設定
+      const user: AuthUser = {
+        id: userId,
+        email: email,
+        name: name || "",
+        isSetupComplete: true, // 後で画面表示時に判定
+        createdAt: new Date(),
+        lastLogin: new Date(),
+        role: role || undefined,
+      };
+  
+      setUser(user);
+      setShouldRedirectToLogin(false);
+  
+      // Cookieに保存
+      setCookie("userId", userId);
+      if (role) setCookie("role", role);
+      if (token) setCookie("authToken", token);
+      if (name) setCookie("userName", name);
+  
+      // selectedUserの設定のみ（詳細情報は後で取得）
+      setSelectedUser(user);
+      
+    } catch (error) {
+      throw new Error("ログインに失敗しました");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const completeSetup = (setupData: InitialSetup) => {
+    // ログイン中のユーザー(user)と表示対象のユーザー(selectedUser)の両方を更新
+    if (user && selectedUser) {
+      const updatedUser = { ...user, isSetupComplete: true };
+      const updatedSelectedUser = { ...selectedUser, isSetupComplete: true };
+
+      setUser(updatedUser);
+      setSelectedUser(updatedSelectedUser);
+      setUserSetup(setupData);
+    }
+  };
+
+  const updateUserSetup = (setupData: Partial<InitialSetup>) => {
+    if (userSetup) {
+      const updatedSetup = { ...userSetup, ...setupData };
+      setUserSetup(updatedSetup);
+    }
+  };
+
+  const loadUserSetup = async () => {
+    if (!user) return;
+  
+    try {
+      const { Service } = await import("../api/services/Service");
+      const { withErrorHandling } = await import("../utils/apiErrorHandler");
+      const response = await withErrorHandling(() => 
+        Service.getApiSettingUser(selectedUser?.id || user.id)
+      );
+      
+      if (response.responseStatus === 1 && response.userSchema && response.settingSchema) {
+        const setupData: InitialSetup = {
+          userName: response.userSchema.name || "",
+          email: response.userSchema.email || "",
+          companyName: response.userSchema.company || "",
+          phoneNumber: "", // UserSchemaには電話番号フィールドがないため空文字
+          password: "", // パスワードは取得しない
+          passwordConfirm: "", // パスワード確認も取得しない
+          currentAssets: response.settingSchema.capital || 0,
+          companySize: getCompanySizeString(Number(response.settingSchema.companySize)),
+          fiscalYearStartMonth: response.settingSchema.fiscalYearStartMonth || 1,
+          fiscalYearStartYear: response.settingSchema.fiscalYearStartYear || new Date().getFullYear(),
+          industry: getIndustryString(Number(response.settingSchema.industry)),
+          financialKnowledge: getFinancialKnowledgeString(Number(response.settingSchema.financialKnowledge)),
+          capital: response.settingSchema.capital,
+        };
+        setUserSetup(setupData);
+      } else {
+        setUserSetup(null);
+      }
+    } catch (error) {
+      console.error("ユーザー設定の読み込みに失敗:", error);
+      setUserSetup(null);
+    }
+  };
+  
+  // APIの数値を文字列に変換するヘルパー関数
+  const getCompanySizeString = (
+    size?: number
+  ):
+    | "個人事業主"
+    | "法人（従業員1-5名）"
+    | "法人（従業員6-20名）"
+    | "法人（従業員21名以上）" => {
+    switch (size) {
+      case 1:
+        return "個人事業主";
+      case 2:
+        return "法人（従業員1-5名）";
+      case 3:
+        return "法人（従業員6-20名）";
+      case 4:
+        return "法人（従業員21名以上）";
+      default:
+        return "個人事業主";
+    }
+  };
+
+  const getIndustryString = (
+    industry?: number
+  ):
+    | "IT・ソフトウェア"
+    | "製造業"
+    | "小売業"
+    | "飲食業"
+    | "サービス業"
+    | "建設業"
+    | "医療・福祉"
+    | "教育"
+    | "金融・保険"
+    | "不動産"
+    | "その他" => {
+    switch (industry) {
+      case 1:
+        return "IT・ソフトウェア";
+      case 2:
+        return "製造業";
+      case 3:
+        return "小売業";
+      case 4:
+        return "飲食業";
+      case 5:
+        return "サービス業";
+      case 6:
+        return "建設業";
+      case 7:
+        return "医療・福祉";
+      case 8:
+        return "教育";
+      case 9:
+        return "金融・保険";
+      case 10:
+        return "不動産";
+      case 11:
+        return "その他";
+      default:
+        return "IT・ソフトウェア";
+    }
+  };
+
+  const getFinancialKnowledgeString = (
+    knowledge?: number
+  ): "初心者" | "基本レベル" | "中級レベル" | "上級レベル" => {
+    switch (knowledge) {
+      case 1:
+        return "初心者";
+      case 2:
+        return "基本レベル";
+      case 3:
+        return "中級レベル";
+      case 4:
+        return "上級レベル";
+      default:
+        return "初心者";
+    }
+  };
+
+  const logout = async () => {
+    try {
+      // Cookieからトークンを取得
+      const token = getCookie("authToken");
+      
+      if (token) {
+        // postApiAuthLogout APIを呼び出し
+        const { Service } = await import("../api/services/Service");
+        await Service.postApiAuthLogout({ token });
+      }
+    } catch (error) {
+      console.error("ログアウトAPIの呼び出しに失敗:", error);
+      // APIエラーでもローカル状態はクリアする
+    } finally {
+      // ローカル状態をクリア
+      setUser(null);
+      setUserSetup(null);
+      setManagedUsers([]);
+      setSelectedUser(null);
+      setShouldRedirectToLogin(false);
+      
+      // 認証関連データを削除
+      deleteCookie("userId");
+      deleteCookie("role");
+      deleteCookie("selectedUserId");
+      deleteCookie("authToken");
+      deleteCookie("userName");
+    }
+  };
+
+  const switchUser = (userId: string) => {
+    const userToSwitch = managedUsers.find((u) => u.id === userId);
+    if (userToSwitch) {
+      setSelectedUser(userToSwitch);
+      setCookie("selectedUserId", userId);
+    }
+  };
+
+  const value: AuthContextType = {
+    user,
+    userSetup,
+    isLoading,
+    shouldRedirectToLogin,
+    sessionExpired,
+    clearSessionExpired,
+    login,
+    completeSetup,
+    updateUserSetup,
+    loadUserSetup,
+    logout,
+    managedUsers,
+    selectedUser,
+    switchUser,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};

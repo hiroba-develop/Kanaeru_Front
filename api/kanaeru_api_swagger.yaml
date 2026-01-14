@@ -1,0 +1,2126 @@
+openapi: 3.0.3
+info:
+  title: Kanaeru API
+  description: Kanaeru アプリケーションのAPI設計書
+  version: 1.0.0
+
+tags:
+  - name: 認証
+    description: 認証関連API
+  - name: 設定変更
+    description: 設定変更関連API
+  - name: 年次損益計算書更新
+    description: 年次損益計算書更新API
+  - name: 画面初期表示
+    description: 画面初期表示関連API
+  - name: サポート画面
+    description: サポート画面関連API
+  - name: マンダラチャート
+    description: マンダラチャート関連API
+  - name: メイン目標
+    description: メイン目標関連API
+  - name: 大目標
+    description: 大目標関連API
+  - name: 中目標
+    description: 中目標関連API
+  - name: 小目標
+    description: 小目標関連API
+
+paths:
+  # =====================
+  # 認証関連API
+  # =====================
+  /api/auth/login:
+    post:
+      tags:
+        - 認証
+      summary: ログイン
+      description: |
+        ユーザーログイン時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: passwordHash
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ログイン成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                    description: 成功時は1、失敗時は0
+                  userId:
+                    type: string
+                  name:
+                    type: string
+                  role:
+                    type: string
+                  token:
+                    type: string
+                    description: JWT認証トークン
+  
+  /api/auth/logout:
+    post:
+      tags:
+        - 認証
+      summary: ログアウト
+      description: ログアウト時使用、トークン無効化
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  description: 認証トークン（JWT）
+      responses:
+        '200':
+          description: ログアウト成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
+  /api/auth/registration/user:
+    post:
+      tags:
+        - 認証
+      summary: ユーザー登録(一般ユーザー)
+      description: |
+        ユーザー登録時使用(一般ユーザー)
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userSchema:
+                  $ref: '#/components/schemas/UserSchema'
+                settingSchema:
+                  $ref: '#/components/schemas/SettingSchema'
+      responses:
+        '200':
+          description: 登録成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/auth/delete:
+    delete:
+      tags:
+        - 認証
+      summary: ユーザー削除
+      description: |
+        ユーザー削除時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/auth/updatePassword:
+    put:
+      tags:
+        - 認証
+      summary: パスワード更新
+      description: |
+        パスワード更新時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                currentPasswordHash:
+                  type: string
+                newPasswordHash:
+                  type: string
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
+  /api/auth/forgotPassword:
+    post:
+      tags:
+        - 認証
+      summary: パスワード再発行
+      description: |
+        パスワード再発行時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+      responses:
+        '200':
+          description: 再発行成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/auth/resetPassword:
+    post:
+      tags:
+        - 認証
+      summary: パスワード再設定
+      description: |
+        パスワード再設定時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                newPasswordHash:
+                  type: string
+      responses:
+        '200':
+          description: 再設定成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/auth/registration/admin:
+    post:
+      tags:
+        - 認証
+      summary: ユーザー登録(管理者・プラットフォームオーナー)
+      description: |
+        ユーザー登録時使用(管理者・プラットフォームオーナー)
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userSchema:
+                  $ref: '#/components/schemas/UserSchema'
+      responses:
+        '200':
+          description: 登録成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/client:
+    get:
+      tags:
+        - 認証
+      summary: クライアントユーザー取得
+      description: |
+        管理者・プラットフォームオーナーがログイン時に使用
+        管理者IDが紐づけされているユーザーを取得する
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  userId:
+                    type: string
+                  name:
+                    type: string
+                  userType:
+                    type: string
+
+  # =====================
+  # 設定変更関連API
+  # =====================
+  /api/setting/update/user:
+    put:
+      tags:
+        - 設定変更
+      summary: 設定内容変更(一般ユーザー)
+      description: |
+        設定内容更新時使用(一般ユーザー)
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userSchema:
+                  $ref: '#/components/schemas/UserSchema'
+                settingSchema:
+                  $ref: '#/components/schemas/SettingSchema'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  userSchema:
+                    $ref: '#/components/schemas/UserSchema'
+                  settingSchema:
+                    $ref: '#/components/schemas/SettingSchema'
+
+  /api/setting/user:
+    get:
+      tags:
+        - 設定変更
+      summary: 設定内容取得(一般ユーザー)
+      description: |
+        設定内容更新時使用(一般ユーザー)
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  userSchema:
+                    $ref: '#/components/schemas/UserSchema'
+                  settingSchema:
+                    $ref: '#/components/schemas/SettingSchema'
+
+  /api/setting/update/admin:
+    put:
+      tags:
+        - 設定変更
+      summary: 設定内容変更(管理者・プラットフォームオーナー)
+      description: |
+        設定内容更新時使用(管理者・プラットフォームオーナー)
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userSchema:
+                  $ref: '#/components/schemas/UserSchema'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  userSchema:
+                    $ref: '#/components/schemas/UserSchema'
+
+  /api/setting/admin:
+    get:
+      tags:
+        - 設定変更
+      summary: 設定内容取得(管理者・プラットフォームオーナー)
+      description: |
+        設定内容更新時使用(管理者・プラットフォームオーナー)
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  userSchema:
+                    $ref: '#/components/schemas/UserSchema'
+
+  # =====================
+  # 年次PL更新関連API
+  # =====================
+  /api/sale/update:
+    put:
+      tags:
+        - 年次損益計算書更新
+      summary: 売上更新
+      description: |
+        売上更新時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaleSchema'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  saleSchema:
+                    $ref: '#/components/schemas/SaleSchema'
+
+  /api/grossProfit/update:
+    put:
+      tags:
+        - 年次損益計算書更新
+      summary: 粗利益更新
+      description: |
+        粗利益更新時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrossProfitSchema'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  grossProfitSchema:
+                    $ref: '#/components/schemas/GrossProfitSchema'
+
+  /api/operatingProfit/update:
+    put:
+      tags:
+        - 年次損益計算書更新
+      summary: 営業利益更新
+      description: |
+        営業利益更新時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperatingProfitSchema'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  operatingProfitSchema:
+                    $ref: '#/components/schemas/OperatingProfitSchema'
+
+  /api/netAsset/update:
+    put:
+      tags:
+        - 年次損益計算書更新
+      summary: 純資産更新
+      description: |
+        純資産更新時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NetAssetsSchema'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  netAssetsSchema:
+                    $ref: '#/components/schemas/NetAssetsSchema'
+
+  # =====================
+  # 画面初期表示関連API
+  # =====================
+  /api/home:
+    get:
+      tags:
+        - 画面初期表示
+      summary: ホーム画面 初期表示
+      description: |
+        ホーム画面初期表示時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  adminCommentSchema:
+                    $ref: '#/components/schemas/AdminCommentSchema'
+                  quarterlyGoalSchema:
+                    type: object
+                  quarterlyGoalTaskSchema:
+                    type: object
+
+  /api/yearlyBudgetActual:
+    get:
+      tags:
+        - 画面初期表示
+      summary: 予実管理(年次)画面 初期表示
+      description: |
+        ロードマップ設定画面初期表示時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  saleId:
+                    type: string
+                  userId:
+                    type: string
+                  year:
+                    type: integer
+                  month:
+                    type: integer
+                  saleTarget:
+                    type: number
+                  profitId:
+                    type: string
+                  profitTarget:
+                    type: number
+                  netAssetId:
+                    type: string
+                  netAssetTarget:
+                    type: number
+                  netAssetResult:
+                    type: number
+
+  /api/support:
+    get:
+      tags:
+        - 画面初期表示
+      summary: サポート画面 初期表示
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: selecteId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  lastMessageSeq:
+                    type: integer
+                  dmMessageSchema:
+                    $ref: '#/components/schemas/DmMessagesSchema'
+
+  # =====================
+  # サポート画面関連API
+  # =====================
+  /api/support/send:
+    post:
+      tags:
+        - サポート画面
+      summary: サポート画面 メッセージ送信
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                senderId:
+                  type: string
+                recipientId:
+                  type: string
+                content:
+                  type: string
+                messageSeq:
+                  type: integer
+      responses:
+        '200':
+          description: 送信成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  lastMessageSeq:
+                    type: integer
+                  dmMessageSchema:
+                    $ref: '#/components/schemas/DmMessagesSchema'
+
+  /api/support/read:
+    get:
+      tags:
+        - サポート画面
+      summary: サポート画面 メッセージ既読
+      parameters:
+        - name: senderId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: recipientId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: content
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: messageSeq
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 既読成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  lastMessageSeq:
+                    type: integer
+                  dmMessageSchema:
+                    $ref: '#/components/schemas/DmMessagesSchema'
+
+  /api/support/stream:
+    get:
+      tags:
+        - サポート画面
+      summary: サポート画面 メッセージ受信
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 受信成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  value:
+                    type: object
+                    properties:
+                      messageSeq:
+                        type: integer
+                      senderId:
+                        type: string
+                      senderName:
+                        type: string
+                      recipientId:
+                        type: string
+                      recipientName:
+                        type: string
+                      content:
+                        type: string
+                      readAt:
+                        type: string
+                        format: date-time
+                      createdAt:
+                        type: string
+                        format: date-time
+                      updatedAt:
+                        type: string
+                        format: date-time
+                  read:
+                    type: object
+                    properties:
+                      messageSeq:
+                        type: integer
+                      readAt:
+                        type: string
+                        format: date-time
+
+  /api/availability:
+    get:
+      tags:
+        - サポート画面
+      summary: サポート画面　予約可能日時取得
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  userId:
+                    type: string
+                  availabilitySchema:
+                    $ref: '#/components/schemas/AvailabilitySchema'
+
+  /api/support/reservation:
+    post:
+      tags:
+        - サポート画面
+      summary: サポート画面 予約作成
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                startAt:
+                  type: string
+                  format: date-time
+                endAt:
+                  type: string
+                  format: date-time
+                content:
+                  type: string
+      responses:
+        '200':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+    get:
+      tags:
+        - サポート画面
+      summary: サポート画面 予約履歴
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: selecteId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  googleStatus:
+                    type: string
+                  reservationSchema:
+                    $ref: '#/components/schemas/ReservationSchema'
+
+  /api/support/reservation/approval:
+    post:
+      tags:
+        - サポート画面
+      summary: サポート画面 予約承諾
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reservationId:
+                  type: string
+                userId:
+                  type: string
+      responses:
+        '200':
+          description: 承諾成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/support/reservation/reject:
+    post:
+      tags:
+        - サポート画面
+      summary: サポート画面 予約拒否
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reservationId:
+                  type: string
+                userId:
+                  type: string
+      responses:
+        '200':
+          description: 拒否成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/support/reservation/all:
+    get:
+      tags:
+        - サポート画面
+      summary: サポート画面 予約履歴(全件)
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: selecteId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  reservationSchema:
+                    $ref: '#/components/schemas/ReservationSchema'
+
+  /api/google/authorize:
+    get:
+      tags:
+        - サポート画面
+      summary: Google認証
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: returnUrl
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Google認証ページへリダイレクト
+
+  /api/google/callback:
+    get:
+      tags:
+        - サポート画面
+      summary: Google認証コールバック
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: errorDescription
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: コールバック処理完了
+
+  # =====================
+  # マンダラチャート関連API
+  # =====================
+  /api/mandala-charts:
+    get:
+      tags:
+        - マンダラチャート
+      summary: マンダラチャート一覧取得
+      description: |
+        ログインユーザーのマンダラチャート一覧を取得
+        responseStatusは成功時に1を返却、失敗時は0を返却
+        アクティブなマンダラチャートを取得
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  charts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        chart_id:
+                          type: string
+                        start_year_month:
+                          type: string
+                        end_year_month:
+                          type: string
+                        is_active:
+                          type: boolean
+                        created_at:
+                          type: string
+                          format: date-time
+                        main_goal:
+                          type: object
+                          properties:
+                            main_goal_id:
+                              type: string
+                            goal_title:
+                              type: string
+                        large_goals:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/LargeGoalSchema'
+
+  /api/mandala-charts/create:
+    post:
+      tags:
+        - マンダラチャート
+      summary: マンダラチャート新規作成
+      description: |
+        メイン目標を入力されたときにマンダラチャートIDを採番
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                chart_id:
+                  type: string
+                main_goal:
+                  type: object
+                  properties:
+                    goal_title:
+                      type: string
+                    start_year_month:
+                      type: string
+      responses:
+        '200':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/mandala-charts/{chart_id}/update:
+    put:
+      tags:
+        - マンダラチャート
+      summary: マンダラチャート更新
+      description: |
+        マンダラチャートを切り替えたりするときに使用
+        期間を設定してアーカイブができる
+        マンダラチャート情報を更新
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: chart_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                start_year_month:
+                  type: string
+                end_year_month:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/mandala-charts/{chart_id}/delete:
+    delete:
+      tags:
+        - マンダラチャート
+      summary: マンダラチャート削除
+      description: |
+        マンダラチャートを論理削除(DEL_FLG=1)
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: chart_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  # =====================
+  # メイン目標関連API
+  # =====================
+  /api/mandala-charts/{chart_id}/main-goal:
+    get:
+      tags:
+        - メイン目標
+      summary: メイン目標取得
+      description: |
+        メイン目標の詳細情報を取得
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: chart_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  main_goal_id:
+                    type: string
+                  chart_id:
+                    type: string
+                  goal_title:
+                    type: string
+                  start_year_month:
+                    type: string
+
+  /api/mandala-charts/{chart_id}/main-goal/update:
+    put:
+      tags:
+        - メイン目標
+      summary: メイン目標更新
+      description: |
+        メイン目標を更新
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: chart_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goal_title:
+                  type: string
+                start_year_month:
+                  type: string
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
+  # =====================
+  # 大目標関連API
+  # =====================
+  /api/mandala-charts/{chart_id}/large-goals:
+    get:
+      tags:
+        - 大目標
+      summary: 大目標一覧取得
+      description: |
+        指定したマンダラチャートの大目標一覧を取得
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: chart_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  large_goals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LargeGoalSchema'
+
+  /api/large-goals/{large_goal_id}/detail:
+    get:
+      tags:
+        - 大目標
+      summary: 大目標詳細取得
+      description: |
+        大目標の詳細情報と紐づく中目標数を取得
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: large_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  large_goal_id:
+                    type: string
+                  main_goal_id:
+                    type: string
+                  position:
+                    type: integer
+                  goal_title:
+                    type: string
+                  goal_description:
+                    type: string
+                  goal_type:
+                    type: integer
+                    description: "1=定性, 2=売上, 3=粗利益, 4=営業利益"
+                  target_year:
+                    type: integer
+                  target_amount:
+                    type: number
+                  progress:
+                    type: number
+                  middle_goals_count:
+                    type: integer
+
+  /api/large-goals/{chart_id}/create:
+    post:
+      tags:
+        - 大目標
+      summary: 大目標新規作成
+      description: |
+        新しい大目標を作成
+        positionは1-8の範囲
+        goal_type: 1=定性/2=売上/3=粗利益/4=営業利益
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: chart_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                chart_id:
+                  type: string
+                position:
+                  type: integer
+                  description: 1-8の範囲
+                goal_title:
+                  type: string
+                goal_description:
+                  type: string
+                goal_type:
+                  type: integer
+                  description: "1=定性, 2=売上, 3=粗利益, 4=営業利益"
+                target_year:
+                  type: integer
+                target_amount:
+                  type: number
+      responses:
+        '200':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  large_goal_id:
+                    type: string
+                  message:
+                    type: string
+
+  /api/large-goals/{large_goal_id}/update:
+    put:
+      tags:
+        - 大目標
+      summary: 大目標更新
+      description: |
+        大目標を更新
+        positionは1-8の範囲
+        goal_type: 1=定性/2=売上/3=粗利益/4=営業利益
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: large_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                chart_id:
+                  type: string
+                position:
+                  type: integer
+                  description: 1-8の範囲
+                goal_title:
+                  type: string
+                goal_description:
+                  type: string
+                goal_type:
+                  type: integer
+                  description: "1=定性, 2=売上, 3=粗利益, 4=営業利益"
+                target_year:
+                  type: integer
+                target_amount:
+                  type: number
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
+  /api/large-goals/{large_goal_id}/delete:
+    delete:
+      tags:
+        - 大目標
+      summary: 大目標削除
+      description: |
+        大目標を論理削除(DEL_FLG=1)
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: large_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: chart_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
+  # =====================
+  # 中目標関連API
+  # =====================
+  /api/middle-goals/{large_goal_id}:
+    get:
+      tags:
+        - 中目標
+      summary: 中目標一覧取得
+      description: |
+        指定した大目標の中目標一覧を取得
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: large_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  middle_goals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        middle_goal_id:
+                          type: string
+                        position:
+                          type: integer
+                          description: 1-8の範囲
+                        goal_title:
+                          type: string
+                        goal_description:
+                          type: string
+                        goal_type:
+                          type: integer
+                          description: "1=定性, 2=売上, 3=粗利益, 4=営業利益"
+                        target_year:
+                          type: integer
+                        target_amount:
+                          type: number
+                        progress:
+                          type: number
+
+  /api/middle-goals/{middle_goal_id}/detail:
+    get:
+      tags:
+        - 中目標
+      summary: 中目標詳細取得
+      description: |
+        中目標の詳細情報と紐づく小目標数を取得
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: middle_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  middle_goal_id:
+                    type: string
+                  large_goal_id:
+                    type: string
+                  position:
+                    type: integer
+                  goal_title:
+                    type: string
+                  goal_description:
+                    type: string
+                  goal_type:
+                    type: integer
+                    description: "1=定性, 2=売上, 3=粗利益, 4=営業利益"
+                  target_year:
+                    type: integer
+                  target_amount:
+                    type: number
+                  progress:
+                    type: number
+                  small_goals_count:
+                    type: integer
+
+  /api/middle-goals/{large_goal_id}/create:
+    post:
+      tags:
+        - 中目標
+      summary: 中目標新規作成
+      description: |
+        新しい中目標を作成
+        positionは1-8の範囲
+        goal_type: 1=定性/2=売上/3=粗利益/4=営業利益
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: large_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                position:
+                  type: integer
+                  description: 1-8の範囲
+                goal_title:
+                  type: string
+                goal_description:
+                  type: string
+                goal_type:
+                  type: integer
+                  description: "1=定性, 2=売上, 3=粗利益, 4=営業利益"
+                target_year:
+                  type: integer
+                target_amount:
+                  type: number
+      responses:
+        '200':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  middle_goal_id:
+                    type: string
+                  message:
+                    type: string
+
+  /api/middle-goals/{middle_goal_id}/update:
+    put:
+      tags:
+        - 中目標
+      summary: 中目標更新
+      description: |
+        中目標を更新
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: middle_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                position:
+                  type: integer
+                goal_title:
+                  type: string
+                goal_description:
+                  type: string
+                goal_type:
+                  type: integer
+                target_year:
+                  type: integer
+                target_amount:
+                  type: number
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
+  /api/middle-goals/{middle_goal_id}/delete:
+    delete:
+      tags:
+        - 中目標
+      summary: 中目標削除
+      description: |
+        中目標を削除
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: middle_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
+  # =====================
+  # 小目標関連API
+  # =====================
+  /api/small-goals/{middle_goal_id}:
+    get:
+      tags:
+        - 小目標
+      summary: 小目標一覧取得
+      parameters:
+        - name: middle_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  small_goals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        small_goal_id:
+                          type: string
+                        position:
+                          type: integer
+                        goal_title:
+                          type: string
+                        goal_description:
+                          type: string
+                        is_completed:
+                          type: boolean
+                        completed_at:
+                          type: string
+                          format: date-time
+
+  /api/small-goals/{small_goal_id}/detail:
+    get:
+      tags:
+        - 小目標
+      summary: 小目標詳細取得
+      parameters:
+        - name: small_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  small_goal_id:
+                    type: string
+                  middle_goal_id:
+                    type: string
+                  position:
+                    type: integer
+                  goal_title:
+                    type: string
+                  goal_description:
+                    type: string
+                  is_completed:
+                    type: boolean
+                  completed_at:
+                    type: string
+                    format: date-time
+
+  /api/small-goals/{middle_goal_id}/create:
+    post:
+      tags:
+        - 小目標
+      summary: 小目標新規作成
+      parameters:
+        - name: middle_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                position:
+                  type: integer
+                goal_title:
+                  type: string
+                goal_description:
+                  type: string
+      responses:
+        '200':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  small_goal_id:
+                    type: string
+                  message:
+                    type: string
+
+  /api/small-goals/{small_goal_id}/update:
+    put:
+      tags:
+        - 小目標
+      summary: 小目標更新
+      parameters:
+        - name: small_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                position:
+                  type: integer
+                goal_title:
+                  type: string
+                goal_description:
+                  type: string
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
+  /api/small-goals/{small_goal_id}/complete:
+    put:
+      tags:
+        - 小目標
+      summary: 小目標完了/未完了切替
+      parameters:
+        - name: small_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 切替成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  is_completed:
+                    type: boolean
+                  completed_at:
+                    type: string
+                    format: date-time
+                  message:
+                    type: string
+
+  /api/small-goals/{small_goal_id}/delete:
+    delete:
+      tags:
+        - 小目標
+      summary: 小目標削除
+      parameters:
+        - name: small_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
+components:
+  schemas:
+    UserSchema:
+      type: object
+      properties:
+        userId:
+          type: string
+        email:
+          type: string
+        passwordHash:
+          type: string
+        name:
+          type: string
+        company:
+          type: string
+        role:
+          type: string
+        delFlg:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        businessStartHour:
+          type: integer
+        businessEndHour:
+          type: integer
+        webhookUrl:
+          type: string
+
+    SettingSchema:
+      type: object
+      properties:
+        userId:
+          type: string
+        adminId:
+          type: string
+        companySize:
+          type: string
+        industry:
+          type: string
+        capital:
+          type: number
+        financialKnowledge:
+          type: string
+        fiscalYearStartYear:
+          type: integer
+        fiscalYearStartMonth:
+          type: integer
+        lastAdminCommentDate:
+          type: string
+          format: date
+
+    SaleSchema:
+      type: object
+      properties:
+        userId:
+          type: string
+        year:
+          type: integer
+        month:
+          type: integer
+        saleTarget:
+          type: number
+        saleResult:
+          type: number
+
+    GrossProfitSchema:
+      type: object
+      properties:
+        userId:
+          type: string
+        year:
+          type: integer
+        month:
+          type: integer
+        grossProfitTarget:
+          type: number
+        grossProfitResult:
+          type: number
+
+    OperatingProfitSchema:
+      type: object
+      properties:
+        userId:
+          type: string
+        year:
+          type: integer
+        month:
+          type: integer
+        operatingProfitTarget:
+          type: number
+        operatingProfitResult:
+          type: number
+
+    NetAssetsSchema:
+      type: object
+      properties:
+        userId:
+          type: string
+        year:
+          type: integer
+        netAssetTarget:
+          type: number
+        netAssetResult:
+          type: number
+
+    AdminCommentSchema:
+      type: object
+      properties:
+        userId:
+          type: string
+        year:
+          type: integer
+        month:
+          type: integer
+        onepointComment:
+          type: string
+        goodpointComment:
+          type: string
+        cautionpointComment:
+          type: string
+        badpointComment:
+          type: string
+
+    DmMessagesSchema:
+      type: object
+      properties:
+        messageSeq:
+          type: integer
+        senderId:
+          type: string
+        senderName:
+          type: string
+        recipientId:
+          type: string
+        recipientName:
+          type: string
+        content:
+          type: string
+        readAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AvailabilitySchema:
+      type: object
+      properties:
+        startAt:
+          type: string
+          format: date-time
+        range15min:
+          type: boolean
+        renge30min:
+          type: boolean
+        renge45min:
+          type: boolean
+        renge60min:
+          type: boolean
+
+    ReservationSchema:
+      type: object
+      properties:
+        reservationId:
+          type: string
+        userId:
+          type: string
+        userName:
+          type: string
+        selectedUserId:
+          type: string
+        selectedUserName:
+          type: string
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        content:
+          type: string
+        approvalFlg:
+          type: integer
+        calendarId:
+          type: string
+        calendarEventId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    LargeGoalSchema:
+      type: object
+      properties:
+        large_goal_id:
+          type: string
+        position:
+          type: integer
+          description: 1-8の範囲
+        goal_title:
+          type: string
+        goal_description:
+          type: string
+        goal_type:
+          type: integer
+        target_year:
+          type: integer
+        target_amount:
+          type: number
+        progress:
+          type: number
+        middle_goals_progress:
+          type: array
+          items:
+            type: object
+            properties:
+              position:
+                type: integer
+                description: 1-8の範囲
+              progress:
+                type: number
+                description: 中目標の進捗率をposition順番に取得
