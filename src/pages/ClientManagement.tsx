@@ -792,7 +792,7 @@ const ClientManagement: React.FC = () => {
     };
 
     return (
-      <div className="space-y-6">
+      <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-6 lg:px-8 py-6">
         {/* 戻るボタン */}
         <div className="flex items-center justify-between">
           <button
@@ -949,11 +949,11 @@ const ClientManagement: React.FC = () => {
 
   // ユーザー一覧画面
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-6 lg:px-8 py-6">
       {/* ヘッダー */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h1 className="text-2xl sm:text-3xl font-bold text-text">
-          クライアント管理 (デモモード)
+          ユーザー管理 
         </h1>
         <div className="flex items-center gap-4">
           <button

@@ -16,10 +16,12 @@ interface AuthContextType {
     userId?: string,
     role?: string,
     token?: string,
-    name?: string
+    name?: string,
+    userImageUrl?: string
   ) => Promise<void>;
   completeSetup: (setupData: InitialSetup) => void;
   updateUserSetup: (setupData: Partial<InitialSetup>) => void;
+  updateUser: (userData: Partial<AuthUser>) => void; // ユーザー情報を更新
   loadUserSetup: () => Promise<void>;
   logout: () => Promise<void>;
   // ユーザー切り替え機能
@@ -83,7 +85,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     console.warn('セッションが期限切れになりました。');
     setSessionExpired(true);
     
-    // ログアウト処理を実行（APIは呼ばずにローカルのみクリア）
     setUser(null);
     setUserSetup(null);
     setManagedUsers([]);
@@ -91,12 +92,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     
     // Cookieをクリア
     deleteCookie("userId");
+    deleteCookie("userEmail"); // ← 追加
     deleteCookie("role");
     deleteCookie("selectedUserId");
     deleteCookie("authToken");
     deleteCookie("userName");
+    deleteCookie("userImageUrl");
     
-    // ログイン画面へリダイレクト
     setShouldRedirectToLogin(true);
   };
 
@@ -108,83 +110,181 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     });
   }, []);
 
+  // restoreAuthState部分を修正
   useEffect(() => {
     const restoreAuthState = async () => {
       const userId = getCookie("userId");
       const role = getCookie("role");
       const selectedUserId = getCookie("selectedUserId");
       const userName = getCookie("userName");
-  
+      const userImageUrl = getCookie("userImageUrl");
+      const userEmail = getCookie("userEmail"); // ← 追加
+
       if (!userId) {
         setShouldRedirectToLogin(true);
         setIsLoading(false);
         return;
       }
-  
+
       // Cookieから復元するだけ（APIは呼ばない）
       const userToSet: AuthUser = {
         id: userId,
-        email: "", // 後で画面表示時に取得
+        email: userEmail || "", // ← 修正
         name: userName || "",
+        avatar: userImageUrl || undefined,
         isSetupComplete: true,
         createdAt: new Date(),
         lastLogin: new Date(),
         role: role || undefined,
       };
-  
+
       setUser(userToSet);
-      setSelectedUser(userToSet);
       
       // 管理者の場合の処理
       if (role === "1" || role === "2") {
-        setManagedUsers([]);
-        if (selectedUserId) {
-          // TODO: 必要に応じて実装
-        }
+        // ユーザー一覧を取得
+        const fetchManagedUsers = async () => {
+          try {
+            const { Service } = await import("../api/services/Service");
+            const response = await Service.getApiGetUsers();
+            
+            if (response.responseStatus === 1 && response.userListSchema) {
+              // UserListSchemaをAuthUserに変換
+              const managedUsersList: AuthUser[] = response.userListSchema
+                .filter((u) => u.delFlg !== 1) // 削除フラグが立っていないユーザーのみ
+                .map((u) => ({
+                  id: u.userId || "",
+                  email: u.email || "",
+                  name: u.name || "",
+                  avatar: u.userImageUrl || undefined,
+                  isSetupComplete: true,
+                  createdAt: u.createdAt ? new Date(u.createdAt) : new Date(),
+                  lastLogin: new Date(),
+                  role: u.role || undefined,
+                }));
+              
+              setManagedUsers(managedUsersList);
+              
+              // selectedUserIdがCookieにあればそのユーザーを選択、なければ最初のユーザーを選択
+              const userToSelect = selectedUserId
+                ? managedUsersList.find((u) => u.id === selectedUserId) || managedUsersList[0]
+                : managedUsersList[0];
+              
+              if (userToSelect) {
+                setSelectedUser(userToSelect);
+              } else {
+                setSelectedUser(userToSet);
+              }
+            } else {
+              setManagedUsers([]);
+              setSelectedUser(userToSet);
+            }
+          } catch (error) {
+            console.error("ユーザー一覧取得エラー:", error);
+            setManagedUsers([]);
+            setSelectedUser(userToSet);
+          } finally {
+            setIsLoading(false);
+          }
+        };
+        
+        fetchManagedUsers();
+      } else {
+        setSelectedUser(userToSet);
+        setIsLoading(false);
       }
-  
-      setIsLoading(false);
     };
-  
+
     restoreAuthState();
   }, []);
 
-  const login = async (
+  const login = async (  
     email: string,
     _password: string,
     userId?: string,
     role?: string,
     token?: string,
-    name?: string
+    name?: string,
+    userImageUrl?: string
   ): Promise<void> => {
     setIsLoading(true);
     try {
       if (!userId) {
         throw new Error("ユーザーIDが提供されていません");
       }
-  
-      // 最小限の情報のみ設定
+
       const user: AuthUser = {
         id: userId,
         email: email,
         name: name || "",
-        isSetupComplete: true, // 後で画面表示時に判定
+        avatar: userImageUrl || undefined,
+        isSetupComplete: true,
         createdAt: new Date(),
         lastLogin: new Date(),
         role: role || undefined,
       };
-  
+
       setUser(user);
       setShouldRedirectToLogin(false);
-  
-      // Cookieに保存
+
+      // Cookieに保存（emailも追加）
       setCookie("userId", userId);
+      setCookie("userEmail", email);
       if (role) setCookie("role", role);
       if (token) setCookie("authToken", token);
       if (name) setCookie("userName", name);
-  
-      // selectedUserの設定のみ（詳細情報は後で取得）
-      setSelectedUser(user);
+      if (userImageUrl) setCookie("userImageUrl", userImageUrl);
+
+      // 管理者ユーザー（role:1または2）の場合、ユーザー一覧を取得
+      if (role === "1" || role === "2") {
+        try {
+          const { Service } = await import("../api/services/Service");
+          const response = await Service.getApiGetUsers();
+          
+          if (response.responseStatus === 1 && response.userListSchema) {
+            // UserListSchemaをAuthUserに変換
+            const managedUsersList: AuthUser[] = response.userListSchema
+              .filter((u) => u.delFlg !== 1) // 削除フラグが立っていないユーザーのみ
+              .map((u) => ({
+                id: u.userId || "",
+                email: u.email || "",
+                name: u.name || "",
+                avatar: u.userImageUrl || undefined,
+                isSetupComplete: true,
+                createdAt: u.createdAt ? new Date(u.createdAt) : new Date(),
+                lastLogin: new Date(),
+                role: u.role || undefined,
+              }));
+            
+            setManagedUsers(managedUsersList);
+            
+            // 最初のユーザーをselectedUserに設定（またはCookieから復元）
+            const selectedUserId = getCookie("selectedUserId");
+            const userToSelect = selectedUserId
+              ? managedUsersList.find((u) => u.id === selectedUserId) || managedUsersList[0]
+              : managedUsersList[0];
+            
+            if (userToSelect) {
+              setSelectedUser(userToSelect);
+              setCookie("selectedUserId", userToSelect.id);
+            } else {
+              setSelectedUser(user);
+            }
+          } else {
+            // ユーザー一覧取得に失敗した場合は、ログインしたユーザーを設定
+            setManagedUsers([]);
+            setSelectedUser(user);
+          }
+        } catch (error) {
+          console.error("ユーザー一覧取得エラー:", error);
+          // エラーの場合もログインしたユーザーを設定
+          setManagedUsers([]);
+          setSelectedUser(user);
+        }
+      } else {
+        // 一般ユーザーの場合
+        setSelectedUser(user);
+      }
       
     } catch (error) {
       throw new Error("ログインに失敗しました");
@@ -209,6 +309,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (userSetup) {
       const updatedSetup = { ...userSetup, ...setupData };
       setUserSetup(updatedSetup);
+    }
+  };
+
+  const updateUser = (userData: Partial<AuthUser>) => {
+    if (user) {
+      const updatedUser = { ...user, ...userData };
+      setUser(updatedUser);
+      
+      // avatarが更新された場合、Cookieも更新
+      if (userData.avatar) {
+        setCookie("userImageUrl", userData.avatar);
+      }
+      
+      // selectedUserも更新（同じユーザーの場合）
+      if (selectedUser && selectedUser.id === user.id) {
+        setSelectedUser({ ...selectedUser, ...userData });
+      }
     }
   };
 
@@ -331,19 +448,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async () => {
     try {
-      // Cookieからトークンを取得
       const token = getCookie("authToken");
       
       if (token) {
-        // postApiAuthLogout APIを呼び出し
         const { Service } = await import("../api/services/Service");
         await Service.postApiAuthLogout({ token });
       }
     } catch (error) {
       console.error("ログアウトAPIの呼び出しに失敗:", error);
-      // APIエラーでもローカル状態はクリアする
     } finally {
-      // ローカル状態をクリア
       setUser(null);
       setUserSetup(null);
       setManagedUsers([]);
@@ -352,10 +465,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       
       // 認証関連データを削除
       deleteCookie("userId");
+      deleteCookie("userEmail"); // ← 追加
       deleteCookie("role");
       deleteCookie("selectedUserId");
       deleteCookie("authToken");
       deleteCookie("userName");
+      deleteCookie("userImageUrl");
     }
   };
 
@@ -377,6 +492,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     completeSetup,
     updateUserSetup,
+    updateUser,
     loadUserSetup,
     logout,
     managedUsers,

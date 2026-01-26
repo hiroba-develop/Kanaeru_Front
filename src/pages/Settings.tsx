@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Save, User, Building, Lock } from "lucide-react";
+import { Save, User, Building, Lock, UserX } from "lucide-react"; 
 import { useAuth } from "../contexts/AuthContext";
 import { Service } from "../api/services/Service";
 import { withErrorHandling } from "../utils/apiErrorHandler";
@@ -13,7 +13,7 @@ import type {
 } from "../types";
 
 const Settings: React.FC = () => {
-  const { user, updateUserSetup } = useAuth();
+  const { user, updateUserSetup, updateUser  } = useAuth();
   const isNotNormalAccount = user?.role === "1" || user?.role === "2";
 
   // 初期設定データの状態管理
@@ -370,26 +370,32 @@ const Settings: React.FC = () => {
         // APIレスポンスから返ってきたデータで状態を更新
         if (setupData) {
           const updatedSetupData: InitialSetup = { ...setupData };
-
+      
           // userSchemaの更新
           if (response.userSchema) {
             // APIレスポンスの値で更新
             const updatedEmail = response.userSchema.email || emailToSend;
             const updatedName = response.userSchema.name || nameToSend;
+            const updatedCompany = response.userSchema.company || updatedSetupData.companyName;
             
             setUserInfo({
               name: updatedName,
               email: updatedEmail,
               phone: userInfo.phone,
             });
-
+      
             // setupDataのuserSchema関連フィールドを更新
             updatedSetupData.userName = updatedName;
             updatedSetupData.email = updatedEmail;
-            updatedSetupData.companyName =
-              response.userSchema.company || updatedSetupData.companyName;
+            updatedSetupData.companyName = updatedCompany;
+      
+            // ★★★ 追加: AuthContextのユーザー情報を更新 ★★★
+            updateUser({
+              name: updatedName,
+              email: updatedEmail,
+            });
           }
-
+      
           // settingSchemaの更新
           if (response.settingSchema) {
             updatedSetupData.companySize = response.settingSchema.companySize
@@ -415,12 +421,12 @@ const Settings: React.FC = () => {
               response.settingSchema.fiscalYearStartMonth ??
               updatedSetupData.fiscalYearStartMonth;
           }
-
+      
           // 状態を一度だけ更新
           setSetupData(updatedSetupData);
           updateUserSetup(updatedSetupData);
         }
-
+      
         alert("設定を保存しました");
       } else {
         throw new Error("設定の保存に失敗しました");
@@ -523,6 +529,68 @@ const Settings: React.FC = () => {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!user?.id) {
+      alert("ユーザー情報が取得できません");
+      return;
+    }
+
+    // 確認ダイアログ
+    const confirmDelete  = window.confirm(
+      "本当に退会しますか？\n\nこの操作は取り消すことができません。\nすべてのデータが削除されます。"
+    );
+  
+    if (!confirmDelete) return;
+  
+    try {
+      setLoading(true);
+      console.log('=== アカウント削除処理開始 ===');
+      console.log('削除対象ユーザーID:', user.id);
+  
+      // 退会API呼び出し
+      const response = await withErrorHandling(() =>
+        Service.deleteApiDeleteAccount(user.id)
+      );
+  
+      console.log('deleteApiDeleteAccount レスポンス:', response);
+  
+      if (response.responseStatus === 1) {
+        alert("退会処理が完了しました。ご利用ありがとうございました。");
+        
+        console.log('Cookieを削除します');
+        // すべての関連Cookieを削除
+        const cookies = ['authToken', 'userId', 'role', 'selectedUserId', 'userName', 'userImageUrl', 'userEmail'];
+        cookies.forEach(cookieName => {
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+        });
+        
+        console.log('ログイン画面にリダイレクトします');
+        // ログイン画面にリダイレクト
+        window.location.href = "/login";
+        console.log('=== アカウント削除処理完了 ===');
+      } else {
+        throw new Error("退会処理に失敗しました");
+      }
+    } catch (err) {
+      console.error("退会処理エラー:", err);
+      
+      let errorMessage = "退会処理中にエラーが発生しました";
+      if (err instanceof Error) {
+        if (err.message.includes("401") || err.message.includes("403")) {
+          errorMessage = "認証に失敗しました。再度ログインしてください。";
+        } else if (err.message.includes("500")) {
+          errorMessage = "サーバーエラーが発生しました。しばらく経ってから再度お試しください。";
+        } else {
+          errorMessage = err.message || errorMessage;
+        }
+      }
+      
+      alert(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -573,7 +641,7 @@ const Settings: React.FC = () => {
           <h1 className="text-2xl sm:text-3xl font-bold text-text">設定</h1>
           <button
             onClick={handleSaveSettings}
-            className="btn-primary flex items-center justify-center space-x-2 text-sm"
+            className="btn-primary flex items-center justify-center space-x-2 text-sm rounded-full"
           >
             <Save className="h-4 w-4" />
             <span>設定を保存</span>
@@ -710,83 +778,103 @@ const Settings: React.FC = () => {
               </h3>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-text/70 mb-2">
-                  会社名
-                </label>
-                <input
-                  type="text"
-                  value={setupData.companyName || ""}
-                  onChange={(e) =>
-                    setSetupData({
-                      ...setupData,
-                      companyName: e.target.value,
-                    })
-                  }
-                  className="input-field w-full"
-                  placeholder="会社名を入力してください"
-                  disabled={isNotNormalAccount}
-                />
-              </div>
+            {/* ★★★ formタグで囲む（autocomplete="off"を追加） ★★★ */}
+            <form autoComplete="off" onSubmit={(e) => e.preventDefault()}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-text/70 mb-2 ">
+                    会社名
+                  </label>
+                  <input
+                    type="text"
+                    name="company"
+                    autoComplete="off"
+                    value={setupData.companyName || ""}
+                    onChange={(e) =>
+                      setSetupData({
+                        ...setupData,
+                        companyName: e.target.value,
+                      })
+                    }
+                    className="input-field w-full"
+                    placeholder="会社名を入力してください"
+                    disabled={isNotNormalAccount}
+                    maxLength={50}
+                  />
+                  <p className="text-xs text-gray-500 mt-1 text-right">
+                    {setupData.companyName?.length || 0}/50文字
+                  </p>
+                </div>
 
-              <div>
-                <label className="block text-sm text-text/70 mb-1">
-                  お名前<span className="text-red-500 ml-1">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={userInfo.name}
-                  onChange={(e) => {
-                    setUserInfo({ ...userInfo, name: e.target.value });
-                    if (setupData) {
-                      setSetupData({ ...setupData, userName: e.target.value });
-                    }
-                    // エラーをクリア
-                    if (validationErrors.userName) {
-                      setValidationErrors({ ...validationErrors, userName: undefined });
-                    }
-                  }}
-                  className={`input-field w-full ${
-                    validationErrors.userName ? "border-red-500" : ""
-                  }`}
-                  required
-                />
-                {validationErrors.userName && (
-                  <p className="text-xs text-red-600 mt-1">
-                    {validationErrors.userName}
+                <div>
+                  <label className="block text-sm text-text/70 mb-1">
+                    お名前<span className="text-red-500 ml-1">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="username"
+                    autoComplete="off"
+                    value={userInfo.name}
+                    maxLength={50}
+                    onChange={(e) => {
+                      setUserInfo({ ...userInfo, name: e.target.value });
+                      if (setupData) {
+                        setSetupData({ ...setupData, userName: e.target.value });
+                      }
+                      if (validationErrors.userName) {
+                        setValidationErrors({ ...validationErrors, userName: undefined });
+                      }
+                    }}
+                    className={`input-field w-full ${
+                      validationErrors.userName ? "border-red-500" : ""
+                    }`}
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1 text-right">
+                    {userInfo.name?.length || 0}/50文字
                   </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm text-text/70 mb-1">
-                  メールアドレス<span className="text-red-500 ml-1">*</span>
-                </label>
-                <input
-                  type="email"
-                  value={userInfo.email}
-                  onChange={(e) => {
-                    setUserInfo({ ...userInfo, email: e.target.value });
-                    if (setupData) {
-                      setSetupData({ ...setupData, email: e.target.value });
-                    }
-                    // エラーをクリア
-                    if (validationErrors.email) {
-                      setValidationErrors({ ...validationErrors, email: undefined });
-                    }
-                  }}
-                  className={`input-field w-full ${
-                    validationErrors.email ? "border-red-500" : ""
-                  }`}
-                  required
-                />
-                {validationErrors.email && (
-                  <p className="text-xs text-red-600 mt-1">
-                    {validationErrors.email}
+                  {validationErrors.userName && (
+                    <p className="text-xs text-red-600 mt-1">
+                      {validationErrors.userName}
+                    </p>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm text-text/70 mb-1">
+                    メールアドレス<span className="text-red-500 ml-1">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    autoComplete="email"
+                    value={userInfo.email}
+                    maxLength={100}
+                    onChange={(e) => {
+                      setUserInfo({ ...userInfo, email: e.target.value });
+                      if (setupData) {
+                        setSetupData({ ...setupData, email: e.target.value });
+                      }
+                      if (validationErrors.email) {
+                        setValidationErrors({ ...validationErrors, email: undefined });
+                      }
+                    }}
+                    className={`input-field w-full ${
+                      validationErrors.email ? "border-red-500" : ""
+                    }`}
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1 text-right">
+                    {userInfo.email?.length || 0}/100文字
                   </p>
-                )}
+                  {validationErrors.email && (
+                    <p className="text-xs text-red-600 mt-1">
+                      {validationErrors.email}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+            </form>
           </div>
 
           {/* パスワード変更 */}
@@ -798,212 +886,259 @@ const Settings: React.FC = () => {
               </h3>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-text/70 mb-2">
-                  現在のパスワード
-                </label>
-                <div className="relative">
-                  <input
-                    type={showCurrentPassword ? "text" : "password"}
-                    value={passwordData.currentPassword}
-                    onChange={(e) =>
-                      setPasswordData({
-                        ...passwordData,
-                        currentPassword: e.target.value,
-                      })
-                    }
-                    className="input-field w-full pr-10"
-                    placeholder="現在のパスワードを入力"
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                  >
-                    {showCurrentPassword ? (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                        />
-                      </svg>
-                    ) : (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                        />
-                      </svg>
-                    )}
-                  </button>
+            {/* ★★★ formタグで囲む（パスワード保存を有効化） ★★★ */}
+            <form onSubmit={(e) => { e.preventDefault(); handleChangePassword(); }}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-text/70 mb-2">
+                    現在のパスワード
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showCurrentPassword ? "text" : "password"}
+                      name="current-password"
+                      value={passwordData.currentPassword}
+                      onChange={(e) =>
+                        setPasswordData({
+                          ...passwordData,
+                          currentPassword: e.target.value,
+                        })
+                      }
+                      className="input-field w-full pr-10"
+                      placeholder="現在のパスワードを入力"
+                      autoComplete="current-password"
+                      maxLength={100}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    >
+                      {showCurrentPassword ? (
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 text-right">
+                    {passwordData.currentPassword?.length || 0}/100文字
+                  </p>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-sm text-text/70 mb-2">
-                  新しいパスワード
-                </label>
-                <div className="relative">
-                  <input
-                    type={showNewPassword ? "text" : "password"}
-                    value={passwordData.newPassword}
-                    onChange={(e) =>
-                      setPasswordData({
-                        ...passwordData,
-                        newPassword: e.target.value,
-                      })
-                    }
-                    className="input-field w-full pr-10"
-                    placeholder="新しいパスワードを入力"
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                  >
-                    {showNewPassword ? (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                        />
-                      </svg>
-                    ) : (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                        />
-                      </svg>
-                    )}
-                  </button>
+                <div>
+                  <label className="block text-sm text-text/70 mb-2">
+                    新しいパスワード
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? "text" : "password"}
+                      name="new-password"
+                      value={passwordData.newPassword}
+                      onChange={(e) =>
+                        setPasswordData({
+                          ...passwordData,
+                          newPassword: e.target.value,
+                        })
+                      }
+                      className="input-field w-full pr-10"
+                      placeholder="新しいパスワードを入力"
+                      autoComplete="new-password"
+                      maxLength={100}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    >
+                      {showNewPassword ? (
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 text-right">
+                    {passwordData.newPassword?.length || 0}/100文字
+                  </p>
+                  <p className="text-xs text-text/50 mt-1">
+                    8文字以上、英字と数字を含めて設定してください
+                  </p>
                 </div>
-                <p className="text-xs text-text/50 mt-1">
-                  8文字以上、英字と数字を含めて設定してください
-                </p>
-              </div>
 
-              <div>
-                <label className="block text-sm text-text/70 mb-2">
-                  新しいパスワード（確認用）
-                </label>
-                <div className="relative">
-                  <input
-                    type={showNewPasswordConfirm ? "text" : "password"}
-                    value={passwordData.newPasswordConfirm}
-                    onChange={(e) =>
-                      setPasswordData({
-                        ...passwordData,
-                        newPasswordConfirm: e.target.value,
-                      })
-                    }
-                    className="input-field w-full pr-10"
-                    placeholder="新しいパスワードを再入力"
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowNewPasswordConfirm(!showNewPasswordConfirm)
-                    }
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                  >
-                    {showNewPasswordConfirm ? (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                        />
-                      </svg>
-                    ) : (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-                {passwordData.newPasswordConfirm &&
-                  !checkPasswordMatch() && (
+                <div>
+                  <label className="block text-sm text-text/70 mb-2">
+                    新しいパスワード(確認用)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showNewPasswordConfirm ? "text" : "password"}
+                      name="new-password-confirm"
+                      value={passwordData.newPasswordConfirm}
+                      onChange={(e) =>
+                        setPasswordData({
+                          ...passwordData,
+                          newPasswordConfirm: e.target.value,
+                        })
+                      }
+                      className="input-field w-full pr-10"
+                      placeholder="新しいパスワードを再入力"
+                      autoComplete="new-password"
+                      maxLength={100}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowNewPasswordConfirm(!showNewPasswordConfirm)
+                      }
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    >
+                      {showNewPasswordConfirm ? (
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 text-right">
+                    {passwordData.newPasswordConfirm?.length || 0}/100文字
+                  </p>
+                  {passwordData.newPasswordConfirm && !checkPasswordMatch() && (
                     <p className="text-xs text-red-600 mt-1">
                       パスワードが一致しません
                     </p>
                   )}
-              </div>
+                </div>
 
-              <button
-                onClick={handleChangePassword}
-                className="btn-primary w-full sm:w-auto flex items-center justify-center space-x-2 text-sm"
-              >
-                <Lock className="h-4 w-4" />
-                <span>パスワードを変更</span>
-              </button>
+                <button
+                  type="submit"
+                  className="btn-primary w-full sm:w-auto flex items-center rounded-full justify-center space-x-2 text-sm"
+                >
+                  <Lock className="h-4 w-4" />
+                  <span>パスワードを変更</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+        {/* ★★★ 退会セクション ★★★ */}
+        <div className="card border-2 border-red-100">
+          <div className="flex items-center space-x-2 mb-4">
+            <UserX className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />
+            <h3 className="text-base sm:text-lg font-semibold text-red-600">
+              アカウントの削除
+            </h3>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-sm text-red-800 mb-2">
+                <strong>注意：</strong>この操作は取り消すことができません。
+              </p>
+              <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
+                <li>すべてのデータが削除されます</li>
+                <li>マンダラチャート、目標、実績データが失われます</li>
+                <li>再度利用する場合は、新規登録が必要です</li>
+              </ul>
             </div>
+
+            <button
+              onClick={handleDeleteAccount}
+              className="w-full sm:w-auto flex items-center justify-center space-x-2 text-sm px-4 py-2 border-2 border-red-500 text-red-600 rounded-full hover:bg-red-50 transition-colors"
+            >
+              <UserX className="h-4 w-4" />
+              <span>退会する</span>
+            </button>
           </div>
         </div>
       </div>

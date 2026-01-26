@@ -12,6 +12,11 @@ import complate_icon from "../assets/complate_icon.png";
 import heart_icon from "../assets/heart_icon.png";
 import { useAuth } from "../contexts/AuthContext";
 import { Service } from "../api/services/Service";
+import { withErrorHandling } from "../utils/apiErrorHandler";
+import type { SaleSchema } from "../api/models/SaleSchema";
+import type { GrossProfitSchema } from "../api/models/GrossProfitSchema";
+import type { OperatingProfitSchema } from "../api/models/OperatingProfitSchema";
+type GoalType = 'qualitative' | 'revenue' | 'grossProfit' | 'operatingProfit';
 
 type MultiRingProgressProps = {
   totalRings: number;
@@ -265,7 +270,7 @@ LevelIndicator.displayName = 'LevelIndicator';
 type ViewLevel = "large" | "middle" | "small";
 
 const MandalaChart: React.FC = () => {
-  const { user } = useAuth();
+  const { selectedUser, userSetup, loadUserSetup } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [viewLevel, setViewLevel] = useState<ViewLevel>("large");
@@ -281,11 +286,13 @@ const MandalaChart: React.FC = () => {
     cellId: string;
     cellType: 'center' | 'large' | 'middle' | 'small';
     currentValue: string;
+    currentGoalType: GoalType | null;
   }>({
     isOpen: false,
     cellId: '',
     cellType: 'center',
-    currentValue: ''
+    currentValue: '',
+    currentGoalType: null
   });
 
   const [centerStartDate, setCenterStartDate] = useState("");
@@ -294,9 +301,7 @@ const MandalaChart: React.FC = () => {
 
   const [centerGoal, setCenterGoal] = useState("");
 
-  const [centerFeeling] = useState("");
 
-  const [currentChartId, setCurrentChartId] = useState<string | null>(null);
   const currentChartIdRef = useRef<string | null>(null);
 
   const [largeCells, setLargeCells] = useState<MandalaCell[]>(() => {
@@ -360,6 +365,18 @@ const MandalaChart: React.FC = () => {
     level: "small",
   });
 
+  const [plConflictDialog, setPlConflictDialog] = useState<{
+    isOpen: boolean;
+    message: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+  }>({
+    isOpen: false,
+    message: '',
+    onConfirm: () => {},
+    onCancel: () => {}
+  });
+
   // アニメーション制御
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -367,6 +384,14 @@ const MandalaChart: React.FC = () => {
     }, 100);
     return () => clearTimeout(timer);
   }, []);
+
+  const [activePlGoals, setActivePlGoals] = useState<{
+    [key: string]: {
+      cellId: string;
+      cellType: 'large' | 'middle';
+      amount: number;
+    }
+  }>({});
 
   // viewLevelが変わったときにアニメーションをリセット
   useEffect(() => {
@@ -421,12 +446,13 @@ const MandalaChart: React.FC = () => {
   // マンダラチャートデータをAPIから取得
   useEffect(() => {
     const fetchMandalaCharts = async () => {
-      if (!user?.id) {
+      if (!selectedUser?.id) {
         return;
       }
 
       try {
-        const response = await Service.getApiMandalaCharts(user.id);
+        console.log('マンダラチャートデータを取得します:', selectedUser.id);
+        const response = await Service.getApiMandalaCharts(selectedUser.id);
         
         if (response.responseStatus === 1 && response.charts) {
           // アクティブなチャートを取得
@@ -436,7 +462,6 @@ const MandalaChart: React.FC = () => {
             // CHART_IDを保持
             if (activeChart.chart_id) {
               console.log('CHART_IDを設定します:', activeChart.chart_id);
-              setCurrentChartId(activeChart.chart_id);
               currentChartIdRef.current = activeChart.chart_id;
             }
             
@@ -517,8 +542,14 @@ const MandalaChart: React.FC = () => {
     };
 
     fetchMandalaCharts();
-  }, [user?.id]);
+  }, [selectedUser?.id, location.pathname]); // location.pathnameを依存配列に追加
   
+  useEffect(() => {
+    if (selectedUser?.id && !userSetup) {
+      console.log('userSetupをロードします');
+      loadUserSetup();
+    }
+  }, [selectedUser?.id, userSetup, loadUserSetup]);
 
   useEffect(() => {
     console.log('📝 smallCharts state updated');
@@ -828,14 +859,14 @@ const MandalaChart: React.FC = () => {
     setSelectedMiddleCellId(null);
   
     // 大目標の最新データを再取得
-    if (!user?.id) {
+    if (!selectedUser || !selectedUser.id) {
       console.log('userIdが存在しないため、データ取得をスキップします');
       return;
     }
   
     try {
-      console.log('マンダラチャート取得APIを実行します（戻る時）:', user.id);
-      const response = await Service.getApiMandalaCharts(user.id);
+      console.log('マンダラチャート取得APIを実行します（戻る時）:', selectedUser.id);
+      const response = await Service.getApiMandalaCharts(selectedUser.id);
       
       if (response.responseStatus === 1 && response.charts) {
         const activeChart = response.charts.find(chart => chart.is_active === true);
@@ -1005,17 +1036,56 @@ const MandalaChart: React.FC = () => {
       console.error('中目標一覧取得API呼び出しエラー（戻る時）:', error);
     }
   };
+  
+  const convertPlMetricToGoalType = (plMetric: PlMetric): GoalType | null => {
+    switch (plMetric) {
+      case 'revenue':
+        return 'revenue';
+      case 'grossProfit':
+        return 'grossProfit';
+      case 'operatingProfit':
+        return 'operatingProfit';
+      case 'netWorth':
+        // netWorthはGoalTypeには存在しないため、nullを返す
+        return null;
+      default:
+        return null;
+    }
+  };
+
 
   const openGoalInputModal = (
     cellId: string, 
     cellType: 'center' | 'large' | 'middle' | 'small', 
     currentValue: string
   ) => {
+    let currentGoalType: GoalType | null = null;
+  
+    if (cellType === 'large') {
+      const cell = largeCells.find(c => c.id === cellId);
+      if (cell?.plMetric) {
+        currentGoalType = convertPlMetricToGoalType(cell.plMetric);
+      } else if (currentValue && !cell?.plMetric) {
+        // ★ 追加: plMetricがない場合は定性目標
+        currentGoalType = 'qualitative';
+      }
+    } else if (cellType === 'middle' && selectedLargeCellId) {
+      const chart = middleCharts[selectedLargeCellId];
+      const cell = chart?.cells.find(c => c.id === cellId);
+      if (cell?.plMetric) {
+        currentGoalType = convertPlMetricToGoalType(cell.plMetric);
+      } else if (currentValue && !cell?.plMetric) {
+        // ★ 追加: plMetricがない場合は定性目標
+        currentGoalType = 'qualitative';
+      }
+    }
+  
     setGoalInputModal({
       isOpen: true,
       cellId,
       cellType,
-      currentValue
+      currentValue,
+      currentGoalType
     });
   };
 
@@ -1079,251 +1149,418 @@ const MandalaChart: React.FC = () => {
     }
   };
 
-  // 1~10年目をYYYY年に変換する関数
-  // start_year_monthは"YYYY-MM"または"YYYYMM"形式
-  const convertYearIndexToYYYY = (yearIndex: number, startYearMonth: string): number | undefined => {
-    if (!startYearMonth || yearIndex < 1 || yearIndex > 10) {
-      return undefined;
+
+  // 年次PLの金額を更新する関数
+  const updateYearlyPL = async (
+    goalType: 'revenue' | 'grossProfit' | 'operatingProfit',
+    targetYear: number,
+    targetAmount: number
+  ) => {
+    if (!selectedUser || !selectedUser.id) {
+      console.error('ユーザーIDが取得できませんでした');
+      return;
     }
 
-    let startYear: number;
-    if (startYearMonth.includes('-')) {
-      // YYYY-MM形式の場合
-      startYear = parseInt(startYearMonth.split('-')[0], 10);
-    } else if (startYearMonth.length === 6) {
-      // YYYYMM形式の場合
-      startYear = parseInt(startYearMonth.substring(0, 4), 10);
-    } else {
-      return undefined;
-    }
+    try {
+      // userSetupが読み込まれていない場合は読み込む
+      let currentUserSetup = userSetup;
+      if (!currentUserSetup) {
+        await loadUserSetup();
+        // loadUserSetup後、userSetupが更新されるまで少し待つ
+        await new Promise(resolve => setTimeout(resolve, 100));
+        // 再度userSetupを取得
+        const { Service } = await import("../api/services/Service");
+        const { withErrorHandling: withErrorHandlingForSetup } = await import("../utils/apiErrorHandler");
+        const setupResponse = await withErrorHandlingForSetup(() => 
+          Service.getApiSettingUser(selectedUser!.id)
+        );
+        if (setupResponse.responseStatus === 1 && setupResponse.settingSchema) {
+          currentUserSetup = {
+            fiscalYearStartMonth: setupResponse.settingSchema.fiscalYearStartMonth || 4,
+            fiscalYearStartYear: setupResponse.settingSchema.fiscalYearStartYear || new Date().getFullYear(),
+          } as any;
+        }
+      }
 
-    // yearIndex年目 = startYear + yearIndex - 1
-    return startYear + yearIndex - 1;
+      // 事業開始年月を取得（userSetupから取得、デフォルトは4月）
+      const fiscalYearStartMonth = currentUserSetup?.fiscalYearStartMonth || 4;
+      const dataYear = targetYear;
+      const dataMonth = fiscalYearStartMonth;
+
+      // 既存の年次PLデータを取得して実績値を保持
+      const yearlyResponse = await withErrorHandling(() =>
+        Service.getApiYearlyBudgetActual(selectedUser.id)
+      );
+
+      let existingActual = 0;
+
+      if (goalType === 'revenue') {
+        // 売上項目を更新
+        if (yearlyResponse.saleSchema) {
+          const existingSale = yearlyResponse.saleSchema.find(s => s.year === targetYear);
+          existingActual = existingSale?.saleResult || 0;
+        }
+
+        const saleSchema: SaleSchema = {
+          userId: selectedUser.id,
+          year: dataYear,
+          month: dataMonth,
+          saleTarget: targetAmount,
+          saleResult: existingActual,
+        };
+
+        const response = await withErrorHandling(() => Service.putApiSaleUpdate(saleSchema));
+        if (response.responseStatus === 1) {
+          console.log(`売上年次PLの更新に成功しました（FY${targetYear}）`);
+        } else {
+          console.error(`売上年次PLの更新に失敗しました（FY${targetYear}）`);
+        }
+      } else if (goalType === 'grossProfit') {
+        // 粗利益項目を更新
+        if (yearlyResponse.grossProfitSchema) {
+          const existingGrossProfit = yearlyResponse.grossProfitSchema.find(g => g.year === targetYear);
+          existingActual = existingGrossProfit?.grossProfitResult || 0;
+        }
+
+        const grossProfitSchema: GrossProfitSchema = {
+          userId: selectedUser.id,
+          year: dataYear,
+          month: dataMonth,
+          grossProfitTarget: targetAmount,
+          grossProfitResult: existingActual,
+        };
+
+        const response = await withErrorHandling(() => Service.putApiGrossProfitUpdate(grossProfitSchema));
+        if (response.responseStatus === 1) {
+          console.log(`粗利益年次PLの更新に成功しました（FY${targetYear}）`);
+        } else {
+          console.error(`粗利益年次PLの更新に失敗しました（FY${targetYear}）`);
+        }
+      } else if (goalType === 'operatingProfit') {
+        // 営業利益項目を更新
+        if (yearlyResponse.operatingProfitSchema) {
+          const existingOperatingProfit = yearlyResponse.operatingProfitSchema.find(o => o.year === targetYear);
+          existingActual = existingOperatingProfit?.operatingProfitResult || 0;
+        }
+
+        const operatingProfitSchema: OperatingProfitSchema = {
+          userId: selectedUser.id,
+          year: dataYear,
+          month: dataMonth,
+          operatingProfitTarget: targetAmount,
+          operatingProfitResult: existingActual,
+        };
+
+        const response = await withErrorHandling(() => Service.putApiOperatingProfitUpdate(operatingProfitSchema));
+        if (response.responseStatus === 1) {
+          console.log(`営業利益年次PLの更新に成功しました（FY${targetYear}）`);
+        } else {
+          console.error(`営業利益年次PLの更新に失敗しました（FY${targetYear}）`);
+        }
+      }
+    } catch (error) {
+      console.error('年次PL更新エラー:', error);
+    }
   };
 
-  const handleGoalSubmit = async (
-    goal: string, 
-    goalType: 'qualitative' | 'revenue' | 'grossProfit' | 'operatingProfit'
+
+  // handleGoalSubmitの前に追加
+
+  const saveGoalWithPlUpdate = async (
+    cellId: string,
+    cellType: 'center' | 'large' | 'middle' | 'small',
+    goal: string,
+    goalType: 'revenue' | 'grossProfit' | 'operatingProfit',
+    finalTargetYear: number,
+    finalTargetAmount: number,
+    targetYearIndex?: number, 
+    amountInManYen?: number 
   ) => {
-    const { cellId, cellType } = goalInputModal;
-
-    if (cellType === 'center') {
-      setCenterGoal(goal);
-    } else if (cellType === 'large') {
-      const plMetric = 
-        goalType === 'revenue' ? 'revenue' :
-        goalType === 'grossProfit' ? 'grossProfit' :
-        goalType === 'operatingProfit' ? 'operatingProfit' :
-        undefined;
-
-      // 現在のセルを取得
-      const currentCell = largeCells.find(c => c.id === cellId);
-      const largeGoalId = currentCell?.largeGoalId;
-      const chartId = currentChartIdRef.current;
-      const position = getLargePosition(cellId);
-      const goalTypeNumber = convertGoalTypeToNumber(goalType);
-
-      // goalから年度と金額を抽出
-      let targetYear: number | undefined;
-      let targetAmount: number | undefined;
-
-      if (goalType !== 'qualitative') {
-        // PL連動目標の場合: "2年目に売上\n100万円" または "2年目に売上100万円"
-        const yearMatch = goal.match(/(\d+)年目に/);
-        if (yearMatch && centerStartDate) {
-          const yearIndex = parseInt(yearMatch[1], 10);
-          targetYear = convertYearIndexToYYYY(yearIndex, centerStartDate);
-        }
-
-        const amountMatch = goal.match(/(\d+)万円/);
-        if (amountMatch) {
-          targetAmount = parseFloat(amountMatch[1]) * 10000; // 万円を円に変換
-        }
-      }
-
-      // APIに送信
-      if (chartId && user?.id) {
-        try {
-          if (largeGoalId) {
-            // largeGoalIdがある場合は更新APIを実行
-            console.log('大目標更新APIを実行します:', largeGoalId);
-            const response = await Service.putApiLargeGoalsUpdate(
-              largeGoalId,
-              {
-                chart_id: chartId,
-                position: position,
-                goal_title: goal,
-                goal_type: goalTypeNumber,
-                target_year: targetYear,
-                target_amount: targetAmount,
-              }
-            );
-            
-            if (response.responseStatus === 1) {
-              console.log('大目標の更新に成功しました');
-              // 画面の状態を更新
-              setLargeCells((prev) =>
-                prev.map((c) =>
-                  c.id === cellId ? { ...c, title: goal, plMetric, largeGoalId: largeGoalId } : c
-                )
-              );
-              return; // API成功時はここでreturn
-            } else {
-              console.error('大目標の更新に失敗しました');
-            }
-          } else {
-            // largeGoalIdがない場合は新規作成APIを実行
-            // パスパラメータはchart_idを使用
-            console.log('大目標新規作成APIを実行します:', chartId);
-            const response = await Service.postApiLargeGoalsCreate(
-              chartId,
-              {
-                chart_id: chartId,
-                position: position,
-                goal_title: goal,
-                goal_type: goalTypeNumber,
-                target_year: targetYear,
-                target_amount: targetAmount,
-              }
-            );
-            
-            if (response.responseStatus === 1) {
-              console.log('大目標の作成に成功しました');
-              // 作成されたlargeGoalIdを保存
-              const createdLargeGoalId = response.large_goal_id;
-              if (createdLargeGoalId) {
-                setLargeCells((prev) =>
-                  prev.map((c) =>
-                    c.id === cellId ? { ...c, title: goal, plMetric, largeGoalId: createdLargeGoalId } : c
-                  )
-                );
-              }
-              return; // API成功時はここでreturn
-            } else {
-              console.error('大目標の作成に失敗しました');
-            }
-          }
-        } catch (error) {
-          console.error('大目標API呼び出しエラー:', error);
-        }
-      }
+    if (cellType === 'large') {
+      await saveLargeGoal(cellId, goal, goalType, finalTargetYear, finalTargetAmount, true);
     } else if (cellType === 'middle' && selectedLargeCellId) {
-      const plMetric = 
-        goalType === 'revenue' ? 'revenue' :
-        goalType === 'grossProfit' ? 'grossProfit' :
-        goalType === 'operatingProfit' ? 'operatingProfit' :
-        undefined;
+      await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, true);
+    }
+  };
 
-      // 現在の中目標セルを取得
-      const middleChart = middleCharts[selectedLargeCellId];
-      if (!middleChart) {
-        console.error('middleChartが見つかりません:', selectedLargeCellId);
-        return;
-      }
+  const saveGoalWithoutPlUpdate = async (
+    cellId: string,
+    cellType: 'center' | 'large' | 'middle' | 'small',
+    goal: string,
+    goalType: 'revenue' | 'grossProfit' | 'operatingProfit',
+    finalTargetYear: number,
+    finalTargetAmount: number,
+    targetYearIndex?: number,
+    amountInManYen?: number
+  ) => {
+    if (cellType === 'large') {
+      await saveLargeGoal(cellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
+    } else if (cellType === 'middle' && selectedLargeCellId) {
+      await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
+    }
+  };
 
-      const currentMiddleCell = middleChart.cells.find(c => c.id === cellId);
-      const middleGoalId = currentMiddleCell?.middleGoalId;
-      const largeCell = largeCells.find(c => c.id === selectedLargeCellId);
-      const largeGoalId = largeCell?.largeGoalId;
+  const saveLargeGoal = async (
+    cellId: string,
+    goal: string,
+    goalType: 'revenue' | 'grossProfit' | 'operatingProfit',
+    finalTargetYear: number,
+    finalTargetAmount: number,
+    updatePl: boolean
+  ) => {
+    const plMetric = goalType;
+    const currentCell = largeCells.find(c => c.id === cellId);
+    const largeGoalId = currentCell?.largeGoalId;
+    const chartId = currentChartIdRef.current;
+    const position = getLargePosition(cellId);
+    const goalTypeNumber = convertGoalTypeToNumber(goalType);
 
-      if (!largeGoalId) {
-        console.error('largeGoalIdが見つかりません');
-        return;
-      }
+    if (!chartId || !selectedUser?.id) return;
 
-      const position = getMiddlePosition(cellId);
-      const goalTypeNumber = convertGoalTypeToNumber(goalType);
-
-      // goalから年度と金額を抽出
-      let targetYear: number | undefined;
-      let targetAmount: number | undefined;
-
-      if (goalType !== 'qualitative') {
-        // PL連動目標の場合: "2年目に売上\n100万円" または "2年目に売上100万円"
-        const yearMatch = goal.match(/(\d+)年目に/);
-        if (yearMatch && centerStartDate) {
-          const yearIndex = parseInt(yearMatch[1], 10);
-          targetYear = convertYearIndexToYYYY(yearIndex, centerStartDate);
-        }
-
-        const amountMatch = goal.match(/(\d+)万円/);
-        if (amountMatch) {
-          targetAmount = parseFloat(amountMatch[1]) * 10000; // 万円を円に変換
-        }
-      }
-
-      try {
-        if (middleGoalId) {
-          // middleGoalIdがある場合は更新APIを実行
-          console.log('中目標更新APIを実行します:', middleGoalId);
-          const response = await Service.putApiMiddleGoalsUpdate(
-            middleGoalId,
-            {
-              position: position,
-              goal_title: goal,
-              goal_type: goalTypeNumber,
-              target_year: targetYear,
-              target_amount: targetAmount,
-            }
+    try {
+      if (largeGoalId) {
+        const response = await Service.putApiLargeGoalsUpdate(
+          largeGoalId,
+          {
+            chart_id: chartId,
+            position: position,
+            goal_title: goal,
+            goal_type: goalTypeNumber,
+            target_year: finalTargetYear,
+            target_amount: finalTargetAmount,
+          }
+        );
+        
+        if (response.responseStatus === 1) {
+          console.log('✅ 大目標の更新に成功しました');
+          
+          setLargeCells((prev) =>
+            prev.map((c) =>
+              c.id === cellId ? { ...c, title: goal, plMetric, largeGoalId: largeGoalId } : c
+            )
           );
+          
+          // ★ updatePlがtrueの場合のみ年次PLを更新
+          if (updatePl) {
+            await updateYearlyPL(goalType, finalTargetYear, finalTargetAmount);
+            
+            const plKey = `${goalType}-${finalTargetYear}`;
+            setActivePlGoals(prev => ({
+              ...prev,
+              [plKey]: {
+                cellId: cellId,
+                cellType: 'large',
+                amount: finalTargetAmount
+              }
+            }));
+          }
+        } else {
+          console.error('❌ 大目標の更新に失敗しました');
+        }
+      } else {
+        const response = await Service.postApiLargeGoalsCreate(
+          chartId,
+          {
+            chart_id: chartId,
+            position: position,
+            goal_title: goal,
+            goal_type: goalTypeNumber,
+            target_year: finalTargetYear,
+            target_amount: finalTargetAmount,
+          }
+        );
+        
+        if (response.responseStatus === 1) {
+          console.log('✅ 大目標の作成に成功しました');
+          const createdLargeGoalId = response.large_goal_id;
+          if (createdLargeGoalId) {
+            setLargeCells((prev) =>
+              prev.map((c) =>
+                c.id === cellId ? { ...c, title: goal, plMetric, largeGoalId: createdLargeGoalId } : c
+              )
+            );
+          }
+          
+          // ★ updatePlがtrueの場合のみ年次PLを更新
+          if (updatePl) {
+            await updateYearlyPL(goalType, finalTargetYear, finalTargetAmount);
+            
+            const plKey = `${goalType}-${finalTargetYear}`;
+            setActivePlGoals(prev => ({
+              ...prev,
+              [plKey]: {
+                cellId: cellId,
+                cellType: 'large',
+                amount: finalTargetAmount
+              }
+            }));
+          }
+        } else {
+          console.error('❌ 大目標の作成に失敗しました');
+        }
+      }
+    } catch (error) {
+      console.error('❌ 大目標API呼び出しエラー:', error);
+    }
+  };
 
-          if (response.responseStatus === 1) {
-            console.log('中目標の更新に成功しました');
-            // 画面の状態を更新
+  const saveMiddleGoal = async (
+    cellId: string,
+    selectedLargeCellId: string,
+    goal: string,
+    goalType: 'revenue' | 'grossProfit' | 'operatingProfit',
+    finalTargetYear: number,
+    finalTargetAmount: number,
+    updatePl: boolean
+  ) => {
+    const plMetric = goalType;
+    const middleChart = middleCharts[selectedLargeCellId];
+    if (!middleChart) {
+      console.error('middleChartが見つかりません:', selectedLargeCellId);
+      return;
+    }
+
+    const currentMiddleCell = middleChart.cells.find(c => c.id === cellId);
+    const middleGoalId = currentMiddleCell?.middleGoalId;
+    const largeCell = largeCells.find(c => c.id === selectedLargeCellId);
+    const largeGoalId = largeCell?.largeGoalId;
+
+    if (!largeGoalId) {
+      console.error('largeGoalIdが見つかりません');
+      return;
+    }
+
+    const position = getMiddlePosition(cellId);
+    const goalTypeNumber = convertGoalTypeToNumber(goalType);
+
+    try {
+      if (middleGoalId) {
+        const response = await Service.putApiMiddleGoalsUpdate(
+          middleGoalId,
+          {
+            position: position,
+            goal_title: goal,
+            goal_type: goalTypeNumber,
+            target_year: finalTargetYear,
+            target_amount: finalTargetAmount,
+          }
+        );
+
+        if (response.responseStatus === 1) {
+          console.log('✅ 中目標の更新に成功しました');
+          
+          setMiddleCharts((prev) => ({
+            ...prev,
+            [selectedLargeCellId]: {
+              ...prev[selectedLargeCellId],
+              cells: prev[selectedLargeCellId].cells.map((c) =>
+                c.id === cellId ? { ...c, title: goal, plMetric, middleGoalId: middleGoalId } : c
+              ),
+            },
+          }));
+          
+          // ★ updatePlがtrueの場合のみ年次PLを更新
+          if (updatePl) {
+            await updateYearlyPL(goalType, finalTargetYear, finalTargetAmount);
+            
+            const plKey = `${goalType}-${finalTargetYear}`;
+            setActivePlGoals(prev => ({
+              ...prev,
+              [plKey]: {
+                cellId: cellId,
+                cellType: 'middle',
+                amount: finalTargetAmount
+              }
+            }));
+          }
+        } else {
+          console.error('❌ 中目標の更新に失敗しました');
+        }
+      } else {
+        const response = await Service.postApiMiddleGoalsCreate(
+          largeGoalId,
+          {
+            position: position,
+            goal_title: goal,
+            goal_type: goalTypeNumber,
+            target_year: finalTargetYear,
+            target_amount: finalTargetAmount,
+          }
+        );
+
+        if (response.responseStatus === 1) {
+          console.log('✅ 中目標の作成に成功しました');
+          const createdMiddleGoalId = response.middle_goal_id;
+          if (createdMiddleGoalId) {
             setMiddleCharts((prev) => ({
               ...prev,
               [selectedLargeCellId]: {
                 ...prev[selectedLargeCellId],
                 cells: prev[selectedLargeCellId].cells.map((c) =>
-                  c.id === cellId ? { ...c, title: goal, plMetric, middleGoalId: middleGoalId } : c
+                  c.id === cellId ? { ...c, title: goal, plMetric, middleGoalId: createdMiddleGoalId } : c
                 ),
               },
             }));
-            return;
-          } else {
-            console.error('中目標の更新に失敗しました');
+          }
+          
+          // ★ updatePlがtrueの場合のみ年次PLを更新
+          if (updatePl) {
+            await updateYearlyPL(goalType, finalTargetYear, finalTargetAmount);
+            
+            const plKey = `${goalType}-${finalTargetYear}`;
+            setActivePlGoals(prev => ({
+              ...prev,
+              [plKey]: {
+                cellId: cellId,
+                cellType: 'middle',
+                amount: finalTargetAmount
+              }
+            }));
           }
         } else {
-          // middleGoalIdがない場合は新規作成APIを実行
-          // パスパラメータはlargeGoalIdを使用
-          console.log('中目標新規作成APIを実行します:', largeGoalId);
-          const response = await Service.postApiMiddleGoalsCreate(
-            largeGoalId,
-            {
-              position: position,
-              goal_title: goal,
-              goal_type: goalTypeNumber,
-              target_year: targetYear,
-              target_amount: targetAmount,
-            }
-          );
-
-          if (response.responseStatus === 1) {
-            console.log('中目標の作成に成功しました');
-            // 作成されたmiddleGoalIdを保存
-            const createdMiddleGoalId = response.middle_goal_id;
-            if (createdMiddleGoalId) {
-              setMiddleCharts((prev) => ({
-                ...prev,
-                [selectedLargeCellId]: {
-                  ...prev[selectedLargeCellId],
-                  cells: prev[selectedLargeCellId].cells.map((c) =>
-                    c.id === cellId ? { ...c, title: goal, plMetric, middleGoalId: createdMiddleGoalId } : c
-                  ),
-                },
-              }));
-            }
-            return;
-          } else {
-            console.error('中目標の作成に失敗しました');
-          }
+          console.error('❌ 中目標の作成に失敗しました');
         }
-      } catch (error) {
-        console.error('中目標API呼び出しエラー:', error);
       }
-    } else if (cellType === 'small' && selectedMiddleCellId) {
-      // 小目標は目標設定モーダルではなく、小目標画面の「保存」ボタンで保存するため、
-      // ここでは状態の更新のみ行う
+    } catch (error) {
+      console.error('❌ 中目標API呼び出しエラー:', error);
+    }
+  };
+  
+  // 万円を億円表記に変換する関数
+  const formatAmountDisplay = (amountInManYen: number): string => {
+    if (amountInManYen >= 10000) {
+      const oku = Math.floor(amountInManYen / 10000);
+      const man = amountInManYen % 10000;
+      if (man === 0) {
+        return `${oku}億円`;
+      } else {
+        return `${oku}億${man.toLocaleString()}万円`;
+      }
+    }
+    return `${amountInManYen.toLocaleString()}万円`;
+  };
+
+  const handleGoalSubmit = async (
+    goal: string, 
+    goalType: 'qualitative' | 'revenue' | 'grossProfit' | 'operatingProfit',
+    amountInManYen?: number,
+    targetYearIndex?: number
+  ) => {
+    // ★ デバッグログ
+    console.log('=== handleGoalSubmit DEBUG ===');
+    console.log('goalType received:', goalType);
+    console.log('amountInManYen:', amountInManYen);
+    console.log('targetYearIndex:', targetYearIndex);
+    console.log('goal text:', goal);
+  
+    const { cellId, cellType } = goalInputModal;
+  
+    if (cellType === 'center') {
+      setCenterGoal(goal);
+      return;
+    }
+    
+    if (cellType === 'small' && selectedMiddleCellId) {
       setSmallCharts({
         ...smallCharts,
         [selectedMiddleCellId]: {
@@ -1333,8 +1570,370 @@ const MandalaChart: React.FC = () => {
           ),
         },
       });
+      return;
     }
-  };
+    
+    // 定性的目標の場合は通常の処理（年次PL連動なし）
+    if (goalType === 'qualitative') {
+      console.log('Processing qualitative goal');
+      if (cellType === 'large') {
+        const currentCell = largeCells.find(c => c.id === cellId);
+        const largeGoalId = currentCell?.largeGoalId;
+        const chartId = currentChartIdRef.current;
+        const position = getLargePosition(cellId);
+        const goalTypeNumber = convertGoalTypeToNumber(goalType);
+  
+        if (chartId && selectedUser?.id) {
+          try {
+            if (largeGoalId) {
+              const response = await Service.putApiLargeGoalsUpdate(
+                largeGoalId,
+                {
+                  chart_id: chartId,
+                  position: position,
+                  goal_title: goal,
+                  goal_type: goalTypeNumber,
+                  target_year: undefined,
+                  target_amount: undefined,
+                }
+              );
+              
+              if (response.responseStatus === 1) {
+                console.log('✅ 大目標（定性）の更新に成功しました');
+                setLargeCells((prev) =>
+                  prev.map((c) =>
+                    c.id === cellId ? { ...c, title: goal, plMetric: undefined, largeGoalId: largeGoalId } : c
+                  )
+                );
+              }
+            } else {
+              const response = await Service.postApiLargeGoalsCreate(
+                chartId,
+                {
+                  chart_id: chartId,
+                  position: position,
+                  goal_title: goal,
+                  goal_type: goalTypeNumber,
+                  target_year: undefined,
+                  target_amount: undefined,
+                }
+              );
+              
+              if (response.responseStatus === 1) {
+                console.log('✅ 大目標（定性）の作成に成功しました');
+                const createdLargeGoalId = response.large_goal_id;
+                if (createdLargeGoalId) {
+                  setLargeCells((prev) =>
+                    prev.map((c) =>
+                      c.id === cellId ? { ...c, title: goal, plMetric: undefined, largeGoalId: createdLargeGoalId } : c
+                    )
+                  );
+                }
+              }
+            }
+          } catch (error) {
+            console.error('❌ 大目標（定性）API呼び出しエラー:', error);
+          }
+        }
+      } else if (cellType === 'middle' && selectedLargeCellId) {
+        const middleChart = middleCharts[selectedLargeCellId];
+        if (!middleChart) {
+          console.error('middleChartが見つかりません:', selectedLargeCellId);
+          return;
+        }
+  
+        const currentMiddleCell = middleChart.cells.find(c => c.id === cellId);
+        const middleGoalId = currentMiddleCell?.middleGoalId;
+        const largeCell = largeCells.find(c => c.id === selectedLargeCellId);
+        const largeGoalId = largeCell?.largeGoalId;
+  
+        if (!largeGoalId) {
+          console.error('largeGoalIdが見つかりません');
+          return;
+        }
+  
+        const position = getMiddlePosition(cellId);
+        const goalTypeNumber = convertGoalTypeToNumber(goalType);
+  
+        try {
+          if (middleGoalId) {
+            const response = await Service.putApiMiddleGoalsUpdate(
+              middleGoalId,
+              {
+                position: position,
+                goal_title: goal,
+                goal_type: goalTypeNumber,
+                target_year: undefined,
+                target_amount: undefined,
+              }
+            );
+  
+            if (response.responseStatus === 1) {
+              console.log('✅ 中目標（定性）の更新に成功しました');
+              setMiddleCharts((prev) => ({
+                ...prev,
+                [selectedLargeCellId]: {
+                  ...prev[selectedLargeCellId],
+                  cells: prev[selectedLargeCellId].cells.map((c) =>
+                    c.id === cellId ? { ...c, title: goal, plMetric: undefined, middleGoalId: middleGoalId } : c
+                  ),
+                },
+              }));
+            }
+          } else {
+            const response = await Service.postApiMiddleGoalsCreate(
+              largeGoalId,
+              {
+                position: position,
+                goal_title: goal,
+                goal_type: goalTypeNumber,
+                target_year: undefined,
+                target_amount: undefined,
+              }
+            );
+  
+            if (response.responseStatus === 1) {
+              console.log('✅ 中目標（定性）の作成に成功しました');
+              const createdMiddleGoalId = response.middle_goal_id;
+              if (createdMiddleGoalId) {
+                setMiddleCharts((prev) => ({
+                  ...prev,
+                  [selectedLargeCellId]: {
+                    ...prev[selectedLargeCellId],
+                    cells: prev[selectedLargeCellId].cells.map((c) =>
+                      c.id === cellId ? { ...c, title: goal, plMetric: undefined, middleGoalId: createdMiddleGoalId } : c
+                    ),
+                  },
+                }));
+              }
+            }
+          }
+        } catch (error) {
+          console.error('❌ 中目標（定性）API呼び出しエラー:', error);
+        }
+      }
+      return;
+    }
+    
+    // ★ PL連動目標の場合は重複チェック
+    if (targetYearIndex !== undefined && amountInManYen !== undefined) {
+      let currentUserSetup = userSetup;
+      
+      if (!currentUserSetup || !currentUserSetup.fiscalYearStartYear) {
+        console.log('userSetupが存在しないため、ロードします');
+        try {
+          await loadUserSetup();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          if (!selectedUser?.id) {
+            console.error('selectedUserが存在しません');
+            alert('ユーザー情報の取得に失敗しました');
+            return;
+          }
+          
+          const setupResponse = await withErrorHandling(() => 
+            Service.getApiSettingUser(selectedUser.id)
+          );
+          
+          if (setupResponse.responseStatus === 1 && setupResponse.settingSchema) {
+            currentUserSetup = {
+              fiscalYearStartMonth: setupResponse.settingSchema.fiscalYearStartMonth || 4,
+              fiscalYearStartYear: setupResponse.settingSchema.fiscalYearStartYear || new Date().getFullYear(),
+            } as any;
+            console.log('userSetupをロードしました:', currentUserSetup);
+          } else {
+            console.error('userSetupの取得に失敗しました');
+            alert('事業年度設定の取得に失敗しました。設定画面で事業年度を設定してください。');
+            return;
+          }
+        } catch (error) {
+          console.error('userSetupロードエラー:', error);
+          alert('事業年度設定の取得に失敗しました');
+          return;
+        }
+      }
+      
+      if (!currentUserSetup?.fiscalYearStartYear) {
+        console.error('fiscalYearStartYearが取得できませんでした');
+        alert('事業年度が設定されていません。設定画面で事業年度を設定してください。');
+        return;
+      }
+      
+      const finalTargetYear = currentUserSetup.fiscalYearStartYear + targetYearIndex - 1;
+      const finalTargetAmount = amountInManYen * 10000;
+      
+      console.log('finalTargetYear:', finalTargetYear);
+      console.log('finalTargetAmount:', finalTargetAmount);
+      
+      // ★ 修正：マンダラチャートのデータから直接重複をチェック
+      let conflict = { hasConflict: false, existingCellTitle: '', existingAmount: 0 };
+      
+      // 大目標から重複をチェック（現在編集中のセルを除く）
+      largeCells.forEach(cell => {
+        if (cell.id === cellId) return; // 自分自身はスキップ
+        if (cell.plMetric !== goalType) return; // メトリックが異なる場合はスキップ
+        if (!cell.title) return; // タイトルがない場合はスキップ
+        
+        // タイトルから年度を抽出
+        const yearMatch = cell.title.match(/(\d+)年目に/);
+        if (yearMatch) {
+          const cellYearIndex = parseInt(yearMatch[1]);
+          const cellAbsoluteYear = currentUserSetup.fiscalYearStartYear + cellYearIndex - 1;
+          
+          if (cellAbsoluteYear === finalTargetYear) {
+            // 同じ年度・同じメトリックの目標が見つかった
+            // 金額を抽出
+            let cellAmountInManYen = 0;
+            const cleanTitle = cell.title.replace(/\n/g, '');
+            const okuMatch = cleanTitle.match(/(\d+)億/);
+            const manMatch = cleanTitle.match(/(\d+)万円/);
+            
+            if (okuMatch) {
+              cellAmountInManYen += parseInt(okuMatch[1]) * 10000;
+            }
+            if (manMatch) {
+              const manValue = parseInt(manMatch[1]);
+              if (okuMatch) {
+                cellAmountInManYen += manValue;
+              } else {
+                cellAmountInManYen = manValue;
+              }
+            }
+            
+            conflict = {
+              hasConflict: true,
+              existingCellTitle: cleanTitle,
+              existingAmount: cellAmountInManYen * 10000
+            };
+          }
+        }
+      });
+      
+      // 中目標から重複をチェック（大目標で見つからなかった場合）
+      if (!conflict.hasConflict) {
+        Object.values(middleCharts).forEach(chart => {
+          chart.cells.forEach(cell => {
+            if (conflict.hasConflict) return; // 既に見つかっている場合はスキップ
+            
+            // 現在編集中のセルの判定
+            const isCurrentCell = cellType === 'middle' && cell.id === cellId;
+            if (isCurrentCell) return; // 自分自身はスキップ
+            
+            if (cell.plMetric !== goalType) return;
+            if (!cell.title) return;
+            
+            const yearMatch = cell.title.match(/(\d+)年目に/);
+            if (yearMatch) {
+              const cellYearIndex = parseInt(yearMatch[1]);
+              const cellAbsoluteYear = currentUserSetup.fiscalYearStartYear + cellYearIndex - 1;
+              
+              if (cellAbsoluteYear === finalTargetYear) {
+                // 金額を抽出
+                let cellAmountInManYen = 0;
+                const cleanTitle = cell.title.replace(/\n/g, '');
+                const okuMatch = cleanTitle.match(/(\d+)億/);
+                const manMatch = cleanTitle.match(/(\d+)万円/);
+                
+                if (okuMatch) {
+                  cellAmountInManYen += parseInt(okuMatch[1]) * 10000;
+                }
+                if (manMatch) {
+                  const manValue = parseInt(manMatch[1]);
+                  if (okuMatch) {
+                    cellAmountInManYen += manValue;
+                  } else {
+                    cellAmountInManYen = manValue;
+                  }
+                }
+                
+                conflict = {
+                  hasConflict: true,
+                  existingCellTitle: cleanTitle,
+                  existingAmount: cellAmountInManYen * 10000
+                };
+              }
+            }
+          });
+        });
+      }
+      
+      if (conflict.hasConflict) {
+        // ★ 競合がある場合は確認ダイアログを表示
+        const metricLabel = 
+          goalType === 'revenue' ? '売上' :
+          goalType === 'grossProfit' ? '粗利益' : '営業利益';
+        
+        const existingAmountInManYen = conflict.existingAmount ? Math.round(conflict.existingAmount / 10000) : 0;
+        const existingAmountDisplay = formatAmountDisplay(existingAmountInManYen);
+        const newAmountDisplay = formatAmountDisplay(amountInManYen);
+        
+        // ★ 追加：既存目標の階層情報を取得
+        let hierarchyInfo = '';
+        
+        // 大目標から検索
+        const existingLargeCell = largeCells.find(cell => {
+          if (!cell.title || cell.plMetric !== goalType) return false;
+          const cleanTitle = cell.title.replace(/\n/g, '');
+          return cleanTitle === conflict.existingCellTitle;
+        });
+        
+        if (existingLargeCell) {
+          // 大目標の場合
+          hierarchyInfo = `大目標：${conflict.existingCellTitle}`;
+        } else {
+          // 中目標から検索
+          let foundMiddleCell = false;
+          Object.entries(middleCharts).forEach(([largeCellId, chart]) => {
+            if (foundMiddleCell) return;
+            
+            const middleCell = chart.cells.find(cell => {
+              if (!cell.title || cell.plMetric !== goalType) return false;
+              const cleanTitle = cell.title.replace(/\n/g, '');
+              return cleanTitle === conflict.existingCellTitle;
+            });
+            
+            if (middleCell) {
+              foundMiddleCell = true;
+              // 紐づく大目標のタイトルを取得
+              const largeCell = largeCells.find(c => c.id === largeCellId);
+              const largeCellTitle = largeCell?.title ? largeCell.title.replace(/\n/g, '') : '';
+              
+              if (largeCellTitle) {
+                hierarchyInfo = `大目標：${largeCellTitle}\n∟中目標：${conflict.existingCellTitle}`;
+              } else {
+                hierarchyInfo = `中目標：${conflict.existingCellTitle}`;
+              }
+            }
+          });
+        }
+        
+        // ★ 修正：メッセージに階層情報を追加
+        const message = `同じ年度に${metricLabel}目標が設定されています。\n\n${hierarchyInfo}\n\n年次PLの目標金額を${newAmountDisplay}に更新しますか？\n※ 上記のマンダラの目標は更新されません。`;
+        
+        setPlConflictDialog({
+          isOpen: true,
+          message: message,
+          onConfirm: async () => {
+            setPlConflictDialog(prev => ({ ...prev, isOpen: false }));
+            await saveGoalWithPlUpdate(cellId, cellType, goal, goalType, finalTargetYear, finalTargetAmount, targetYearIndex, amountInManYen);
+          },
+          onCancel: async () => {
+            setPlConflictDialog(prev => ({ ...prev, isOpen: false }));
+            await saveGoalWithoutPlUpdate(cellId, cellType, goal, goalType, finalTargetYear, finalTargetAmount);
+          }
+        });
+        
+        return;
+      }
+      
+      // ★ 競合がない場合は通常通り保存（年次PLとマンダラチャートの両方を更新）
+      if (cellType === 'large') {
+        await saveLargeGoal(cellId, goal, goalType, finalTargetYear, finalTargetAmount, true);
+      } else if (cellType === 'middle' && selectedLargeCellId) {
+        await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, true);
+      }
+          } 
+};
 
   const saveSmallCell = async (cellId: string) => {
     const chartId = Object.keys(smallCharts).find(key =>
@@ -1813,13 +2412,15 @@ const MandalaChart: React.FC = () => {
                         position: 'absolute',
                         width: 'auto',
                         height: 'auto',
-                        top: '50%',
+                        top: window.innerWidth < 768 ? '15%' : '50%',
                         left: '50%',
-                        transform: 'translate(-50%, clamp(-48px, -6vw, -75px))',
+                        transform: window.innerWidth < 768 
+                          ? 'translate(-50%, 0%)' 
+                          : 'translate(-50%, clamp(-60px, -8vw, -90px))',
                         fontFamily: 'Inter',
                         fontWeight: 400,
                         fontStyle: 'normal',
-                        fontSize: 'clamp(8px, 1.6vw, 12px)',
+                        fontSize: window.innerWidth < 768 ? '7px' : 'clamp(8px, 1.6vw, 12px)',
                         lineHeight: '100%',
                         letterSpacing: '0%',
                         textAlign: 'center',
@@ -1828,24 +2429,23 @@ const MandalaChart: React.FC = () => {
                     >
                       私が叶える目標
                     </div>
-              
+                    
                     <div
                       className="pointer-events-none"
                       style={{
                         position: 'absolute',
-                        width: 'min(140px, 80%)',
+                        width: window.innerWidth < 768 ? '70%' : 'min(160px, 85%)',
                         height: 'auto',
-                        maxHeight: '45%',
+                        maxHeight: window.innerWidth < 768 ? '40%' : '50%',
                         top: '50%',
                         left: '50%',
-                        transform: 'translate(-50%, clamp(-26px, -3vw, -38px))',
+                        transform: 'translate(-50%, -50%)',
+                        marginTop: window.innerWidth < 768 ? '8px' : '0px',
                         fontFamily: 'Inter',
                         fontWeight: 700,
                         fontStyle: 'normal',
-                        fontSize: centerGoal.includes('\n') 
-                          ? 'clamp(10px, 2.4vw, 16px)' 
-                          : 'clamp(12px, 3vw, 20px)',
-                        lineHeight: centerGoal.includes('\n') ? 'clamp(15px, 3vw, 22px)' : 'clamp(18px, 4vw, 30px)',
+                        fontSize: window.innerWidth < 768 ? '9px' : 'clamp(11px, 2.6vw, 18px)',
+                        lineHeight: window.innerWidth < 768 ? '12px' : 'clamp(16px, 3.4vw, 24px)',
                         letterSpacing: '0%',
                         textAlign: 'center',
                         color: '#13AE67',
@@ -1869,6 +2469,9 @@ const MandalaChart: React.FC = () => {
               const ringRatios = getLargeRingRatios(cell.id);
               const isCellHovered = hoveredCellId === cell.id;
 
+              // ★ 追加: メイン目標が設定されているかチェック
+            const hasMainGoal = !!centerGoal;
+
               // ★ 修正: すべての中目標が100%達成されているかチェック
               const allMiddleGoalsCompleted = isLargeGoalFullyCompleted(cell.id);
 
@@ -1880,45 +2483,53 @@ const MandalaChart: React.FC = () => {
                   ? "in_progress"
                   : cell.status;
 
-              return (
-                <div
-                  key={cell.id}
-                  className={`transition-all duration-500 ${
-                    isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-90'
-                  }`}
-                  style={{
-                    transitionDelay: `${delay}ms`
-                  }}
-                >
-                  <MandalaCellFrame
-                    status={cell.status}
-                    visualStatus={visualStatus}
-                    isHoverable={true}
-                  >
-                    <div 
-                      className="flex flex-col items-center h-full group cursor-pointer"
-                      onClick={() => openGoalInputModal(cell.id, 'large', cell.title)}
-                      onMouseEnter={() => setHoveredCellId(cell.id)}
-                      onMouseLeave={() => setHoveredCellId(null)}
+                  return (
+                    <div
+                      key={cell.id}
+                      className={`transition-all duration-500 ${
+                        isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-90'
+                      }`}
+                      style={{
+                        transitionDelay: `${delay}ms`
+                      }}
                     >
-                      <div className="relative w-full flex-1 min-h-0 pointer-events-none">
-                        {isCellHovered && !cell.title && (
-                          <div
-                            className="absolute pointer-events-none transition-opacity duration-200 z-30"
-                            style={{
-                              top: '50%',
-                              left: '50%',
-                              transform: 'translate(-50%, -50%)',
-                              fontFamily: 'Inter',
-                              fontWeight: 400,
-                              fontSize: 'clamp(7px, 1.4vw, 14px)',
-                              color: 'rgba(19, 174, 103, 0.5)',
-                              whiteSpace: 'nowrap'
-                            }}
-                          >
-                            どんな目標にする？
-                          </div>
-                        )}
+                      <MandalaCellFrame
+                        status={cell.status}
+                        visualStatus={visualStatus}
+                        isHoverable={hasMainGoal} // ★ 修正: メイン目標がある場合のみホバー可能
+                      >
+                        <div 
+                          className={`flex flex-col items-center h-full group ${hasMainGoal ? 'cursor-pointer' : 'cursor-default'}`} 
+                          onClick={() => {
+                            if (hasMainGoal) { // ★ 追加: メイン目標がある場合のみクリック可能
+                              openGoalInputModal(cell.id, 'large', cell.title);
+                            }
+                          }}
+                          onMouseEnter={() => {
+                            if (hasMainGoal || !cell.title) { // ★ 修正: メイン目標があるか、タイトルがない場合のみホバー表示
+                              setHoveredCellId(cell.id);
+                            }
+                          }}
+                          onMouseLeave={() => setHoveredCellId(null)}
+                        >
+                          <div className="relative w-full flex-1 min-h-0 pointer-events-none">
+                            {isCellHovered && !cell.title && (
+                              <div
+                                className="absolute pointer-events-none transition-opacity duration-200 z-30"
+                                style={{
+                                  top: '50%',
+                                  left: '50%',
+                                  transform: 'translate(-50%, -50%)',
+                                  fontFamily: 'Inter',
+                                  fontWeight: 400,
+                                  fontSize: 'clamp(7px, 1.4vw, 14px)',
+                                  color: hasMainGoal ? 'rgba(19, 174, 103, 0.5)' : 'rgba(156, 163, 175, 0.5)', // ★ 修正
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {hasMainGoal ? 'どんな目標にする？' : '真ん中の目標を設定しよう'} {/* ★ 修正 */}
+                              </div>
+                            )}
                         
                         {cell.title && (
                           <>
@@ -1946,37 +2557,38 @@ const MandalaChart: React.FC = () => {
                             ) : null}
                           </>
                         )}
-
-                        <div className="absolute inset-0 flex items-center justify-center z-20">
-                          <div
-                            className="bg-transparent border-none text-center"
-                            style={{
-                              position: 'absolute',
-                              width: 'min(100px, 65%)',
-                              height: 'auto',
-                              maxHeight: '50%',
-                              fontFamily: 'Inter',
-                              fontStyle: 'normal',
-                              fontWeight: 600,
-                              fontSize: 'clamp(9px, 1.8vw, 14px)',
-                              lineHeight: 'clamp(13px, 2.6vw, 20px)',
-                              textAlign: 'center',
-                              whiteSpace: 'pre-wrap',
-                              overflow: 'hidden',
-                              wordBreak: 'break-all',
-                              overflowWrap: 'break-word',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              padding: '2px',
-                              left: '50%',
-                              top: '50%',
-                              transform: 'translate(-50%, calc(-50% + clamp(3px, 1vw, 8px)))',
-                              color: isFullyCompleted ? '#F2A1A0' : '#13AE67' // ★ 修正: 完全達成時はピンク
-                            }}  
-                          >
-                            {cell.title || ''}
-                          </div>
+                      </div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div
+                          className="bg-transparent border-none text-center"
+                          style={{
+                            position: 'absolute',
+                            width: window.innerWidth < 768 ? '55%' : 'min(120px, 75%)',
+                            height: 'auto',
+                            maxHeight: window.innerWidth < 768 ? '45%' : '60%',
+                            fontFamily: 'Inter',
+                            fontStyle: 'normal',
+                            fontWeight: 600,
+                            fontSize: window.innerWidth < 768 ? '7px' : 'clamp(9px, 1.8vw, 14px)',
+                            lineHeight: window.innerWidth < 768 ? '10px' : 'clamp(13px, 2.6vw, 20px)',
+                            textAlign: 'center',
+                            whiteSpace: 'pre-wrap',
+                            overflow: 'hidden',
+                            wordBreak: 'break-all',
+                            overflowWrap: 'break-word',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '0',
+                            left: '50%',
+                            top: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            marginTop: window.innerWidth < 768 ? '6px' : '0px',
+                            color: isFullyCompleted ? '#F2A1A0' : '#13AE67',
+                            zIndex: 15
+                          }}  
+                        >
+                          {cell.title || ''}
                         </div>
                       </div>
 
@@ -2065,13 +2677,15 @@ const MandalaChart: React.FC = () => {
                         position: 'absolute',
                         width: 'auto',
                         height: 'auto',
-                        top: '50%',
+                        top: window.innerWidth < 768 ? '15%' : '50%',
                         left: '50%',
-                        transform: 'translate(-50%, clamp(-48px, -6vw, -75px))',
+                        transform: window.innerWidth < 768 
+                          ? 'translate(-50%, 0%)' 
+                          : 'translate(-50%, clamp(-60px, -8vw, -90px))',
                         fontFamily: 'Inter',
                         fontWeight: 400,
                         fontStyle: 'normal',
-                        fontSize: 'clamp(8px, 1.6vw, 12px)',
+                        fontSize: window.innerWidth < 768 ? '7px' : 'clamp(8px, 1.6vw, 12px)',
                         lineHeight: '100%',
                         letterSpacing: '0%',
                         textAlign: 'center',
@@ -2081,25 +2695,22 @@ const MandalaChart: React.FC = () => {
                     >
                       私が叶える目標
                     </div>
-
+              
                     <div
                       style={{
                         position: 'absolute',
-                        width: 'min(140px, 80%)',
+                        width: window.innerWidth < 768 ? '70%' : 'min(160px, 85%)',
                         height: 'auto',
-                        maxHeight: '45%',
+                        maxHeight: window.innerWidth < 768 ? '40%' : '50%',
                         top: '50%',
                         left: '50%',
-                        transform: 'translate(-50%, clamp(-26px, -3vw, -38px))',
+                        transform: 'translate(-50%, -50%)',
+                        marginTop: window.innerWidth < 768 ? '8px' : '0px',
                         fontFamily: 'Inter',
                         fontWeight: 700,
                         fontStyle: 'normal',
-                        fontSize: largeCell.title.includes('\n') 
-                          ? 'clamp(10px, 2.4vw, 16px)' 
-                          : 'clamp(12px, 3vw, 20px)',
-                        lineHeight: largeCell.title.includes('\n') 
-                          ? 'clamp(15px, 3vw, 22px)' 
-                          : 'clamp(18px, 4vw, 30px)',
+                        fontSize: window.innerWidth < 768 ? '9px' : 'clamp(11px, 2.6vw, 18px)',
+                        lineHeight: window.innerWidth < 768 ? '12px' : 'clamp(16px, 3.4vw, 24px)',
                         letterSpacing: '0%',
                         textAlign: 'center',
                         color: '#13AE67',
@@ -2200,36 +2811,37 @@ const MandalaChart: React.FC = () => {
                           ) : null}
                           </>
                         )}
-
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div
-                            className="bg-transparent border-none text-center"
-                            style={{
-                              position: 'absolute',
-                              width: 'min(100px, 65%)',
-                              height: 'auto',
-                              maxHeight: '50%',
-                              fontFamily: 'Inter',
-                              fontWeight: 600,
-                              fontSize: 'clamp(9px, 1.8vw, 14px)',
-                              lineHeight: 'clamp(13px, 2.6vw, 20px)',
-                              textAlign: 'center',
-                              whiteSpace: 'pre-wrap',
-                              overflow: 'hidden',
-                              wordBreak: 'break-all',
-                              overflowWrap: 'break-word',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              padding: '2px',
-                              left: '50%',
-                              top: '50%',
-                              transform: 'translate(-50%, calc(-50% + clamp(3px, 1vw, 8px)))',
-                              color: visualStatus === "achieved" ? '#F2A1A0' : '#13AE67'
-                            }}
-                          >
-                            {cell.title || ''}
-                          </div>
+                      </div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div
+                          className="bg-transparent border-none text-center"
+                          style={{
+                            position: 'absolute',
+                            width: window.innerWidth < 768 ? '55%' : 'min(120px, 75%)',
+                            height: 'auto',
+                            maxHeight: window.innerWidth < 768 ? '45%' : '60%',
+                            fontFamily: 'Inter',
+                            fontWeight: 600,
+                            fontSize: window.innerWidth < 768 ? '7px' : 'clamp(9px, 1.8vw, 14px)',
+                            lineHeight: window.innerWidth < 768 ? '10px' : 'clamp(13px, 2.6vw, 20px)',
+                            textAlign: 'center',
+                            whiteSpace: 'pre-wrap',
+                            overflow: 'hidden',
+                            wordBreak: 'break-all',
+                            overflowWrap: 'break-word',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '0',
+                            left: '50%',
+                            top: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            marginTop: window.innerWidth < 768 ? '6px' : '0px',
+                            color: visualStatus === "achieved" ? '#F2A1A0' : '#13AE67',
+                            zIndex: 15
+                          }}
+                        >
+                          {cell.title || ''}
                         </div>
                       </div>
 
@@ -2427,13 +3039,13 @@ const MandalaChart: React.FC = () => {
                         e.stopPropagation();
                         handleSmallCheck(cell.id);
                       }}
-                      disabled={!cell.title}
+                      disabled={!cell.title || cellChanged}
                       className="flex-shrink-0 flex items-center justify-center transition-all duration-300 hover:scale-110"
                       style={{
                         width: 'clamp(20px, 4vw, 24px)',
                         height: 'clamp(20px, 4vw, 24px)',
-                        cursor: cell.title ? 'pointer' : 'not-allowed',
-                        opacity: !cell.title ? 0.5 : 1
+                        cursor: (cell.title && !cellChanged) ? 'pointer' : 'not-allowed',
+                        opacity: (!cell.title || cellChanged) ? 0.5 : 1
                       }}
                     >
                       {cell.isChecked ? (
@@ -2475,10 +3087,11 @@ const MandalaChart: React.FC = () => {
                       )}
                     </button>
 
-                    <div className="flex-1 min-w-0 flex items-center">
+                    <div className="flex-1 min-w-0 flex items-center relative">
                       <input
                         type="text"
                         value={cell.title}
+                        maxLength={22}
                         onChange={(e) => {
                           const newTitle = e.target.value;
                           setSmallCharts({
@@ -2511,6 +3124,20 @@ const MandalaChart: React.FC = () => {
                           e.target.style.boxShadow = 'none';
                         }}
                       />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          right: '0',
+                          bottom: '0x',
+                          fontFamily: 'Inter',
+                          fontWeight: 400,
+                          fontSize: 'clamp(9px, 1.8vw, 11px)',
+                          color: '#9CA3AF',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        {cell.title.length}/22
+                      </div>
                     </div>
 
                     {cellChanged && (               
@@ -2611,7 +3238,91 @@ const MandalaChart: React.FC = () => {
         {viewLevel === "middle" && renderMiddleView()}
         {viewLevel === "small" && renderSmallView()}
       </div>
-  
+      {plConflictDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="fixed inset-0 bg-black opacity-50"
+            onClick={() => setPlConflictDialog(prev => ({ ...prev, isOpen: false }))}
+          />
+          
+          <div
+            className="relative bg-white rounded-3xl shadow-xl mx-4 p-6"
+            style={{
+              width: '100%',
+              maxWidth: '480px',
+            }}
+          >
+            <h3
+              style={{
+                fontFamily: 'Inter',
+                fontWeight: 600,
+                fontSize: 'clamp(16px, 4vw, 20px)',
+                color: '#F59E0B',
+                marginBottom: '16px'
+              }}
+            >
+              ⚠️ 年次PL 目標金額の上書き確認
+            </h3>
+            
+            <p
+              style={{
+                fontFamily: 'Inter',
+                fontWeight: 400,
+                fontSize: 'clamp(13px, 3vw, 15px)',
+                color: '#1E1F1F',
+                lineHeight: '1.6',
+                whiteSpace: 'pre-wrap',
+                marginBottom: '24px'
+              }}
+            >
+              {plConflictDialog.message}
+            </p>
+            
+            <div className="flex gap-3">
+              {/* ★ 追加：キャンセルボタン */}
+              <button
+                onClick={() => setPlConflictDialog(prev => ({ ...prev, isOpen: false }))}
+                className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md"
+                style={{
+                  fontFamily: 'Inter',
+                  fontSize: 'clamp(14px, 3.5vw, 16px)',
+                  color: '#9CA3AF',
+                  background: '#F9FAFB',
+                  border: '1px solid #E5E7EB'
+                }}
+              >
+                キャンセル
+              </button>
+              
+              <button
+                onClick={plConflictDialog.onCancel}
+                className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md"
+                style={{
+                  fontFamily: 'Inter',
+                  fontSize: 'clamp(14px, 3.5vw, 16px)',
+                  color: '#6B7280',
+                  background: '#F3F4F6',
+                }}
+              >
+                いいえ
+              </button>
+              
+              <button
+                onClick={plConflictDialog.onConfirm}
+                className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg"
+                style={{
+                  fontFamily: 'Inter',
+                  fontSize: 'clamp(14px, 3.5vw, 16px)',
+                  color: '#FFFFFF',
+                  background: '#13AE67',
+                }}
+              >
+                更新する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <AchievementPopup
         isOpen={achievementPopup.isOpen}
         onClose={() =>
@@ -2630,7 +3341,7 @@ const MandalaChart: React.FC = () => {
           setCenterStartDate(startDate);
           
           // APIに送信
-          if (user?.id) {
+          if (selectedUser?.id) {
             try {
               // useRefで最新の値を確実に取得
               const chartId = currentChartIdRef.current;
@@ -2656,7 +3367,7 @@ const MandalaChart: React.FC = () => {
                 // CHART_IDがない場合は新規作成APIを実行
                 console.log('新規作成APIを実行します');
                 const response = await Service.postApiMandalaChartsCreate({
-                  userId: user.id,
+                  userId: selectedUser.id,
                   main_goal: {
                     goal_title: goal,
                     start_year_month: startDate,
@@ -2666,11 +3377,10 @@ const MandalaChart: React.FC = () => {
                 if (response.responseStatus === 1) {
                   console.log('マンダラチャートの作成に成功しました');
                   // 作成後にCHART_IDを取得するため、再度データを取得
-                  const chartsResponse = await Service.getApiMandalaCharts(user.id);
+                  const chartsResponse = await Service.getApiMandalaCharts(selectedUser.id);
                   if (chartsResponse.responseStatus === 1 && chartsResponse.charts) {
                     const activeChart = chartsResponse.charts.find(chart => chart.is_active === true);
                     if (activeChart?.chart_id) {
-                      setCurrentChartId(activeChart.chart_id);
                       currentChartIdRef.current = activeChart.chart_id;
                     }
                   }
@@ -2691,6 +3401,7 @@ const MandalaChart: React.FC = () => {
         onClose={() => setGoalInputModal({ ...goalInputModal, isOpen: false })}
         onSubmit={handleGoalSubmit}
         initialValue={goalInputModal.currentValue}
+        initialGoalType={goalInputModal.currentGoalType}
         cellType={goalInputModal.cellType}
       />
     </div>

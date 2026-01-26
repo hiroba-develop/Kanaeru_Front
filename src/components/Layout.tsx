@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
-  BarChart3,
   Menu,
   X,
   Users,
@@ -9,8 +8,11 @@ import {
   Home,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { Service } from "../api/services/Service";
+import { withErrorHandling } from "../utils/apiErrorHandler";
 import headerIcon from "../assets/header_icon.png";
 import mandalaIcon from "../assets/mandala_icon.png";
+import plIcon from "../assets/icon_pl.png";
 import settingsIcon from "../assets/settings_icon.png";
 
 interface LayoutProps {
@@ -22,10 +24,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [userRole, setUserRole] = useState<string | null>(null);
 
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   const location = useLocation();
-  const { logout, user, managedUsers, selectedUser, switchUser } = useAuth();
+  const { logout, user, managedUsers, selectedUser, switchUser, updateUser } = useAuth();
 
   const MandalaIcon: React.FC<{ className?: string }> = ({
     className = "",
@@ -33,6 +36,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     <img
       src={mandalaIcon}
       alt="Mandala"
+      className={`inline-block align-middle ${className}`}
+      style={{
+        width: '24px',
+        height: '24px',
+        borderRadius: '50%',
+        objectFit: 'cover'
+      }}
+    />
+  );
+  const PLIcon: React.FC<{ className?: string }> = ({
+    className = "",
+  }) => (
+    <img
+      src={plIcon}
+      alt="PL"
       className={`inline-block align-middle ${className}`}
       style={{
         width: '24px',
@@ -69,8 +87,40 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   }, [user?.avatar]);
 
+  // デバッグ用のuseEffectを追加
+  useEffect(() => {
+    console.log('=== Debug Info ===');
+    console.log('userRole:', userRole, 'type:', typeof userRole);
+    console.log('managedUsers:', managedUsers);
+    console.log('managedUsers.length:', managedUsers.length);
+    console.log('selectedUser:', selectedUser);
+    console.log('condition result:', userRole !== null && ["1", "2"].includes(userRole) && managedUsers.length > 0);
+  }, [userRole, managedUsers, selectedUser]);
+
   const handleAvatarClick = () => {
-    avatarInputRef.current?.click();
+    if (!isUploadingAvatar) {
+      avatarInputRef.current?.click();
+    }
+  };
+
+  // 画像の寸法を検証するヘルパー関数
+  const validateImageDimensions = (file: File): Promise<{ width: number; height: number } | null> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve({ width: img.width, height: img.height });
+      };
+      
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(null);
+      };
+      
+      img.src = objectUrl;
+    });
   };
 
   const handleAvatarChange: React.ChangeEventHandler<HTMLInputElement> = async (
@@ -79,8 +129,98 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // 画像形式のバリデーション
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+    const fileType = file.type.toLowerCase();
+    if (!allowedTypes.includes(fileType)) {
+      alert('許可されていない画像形式です。JPEG、PNG、GIFのみアップロードできます。');
+      e.target.value = '';
+      return;
+    }
+
+    // ファイルサイズのバリデーション（5MB = 5 * 1024 * 1024 bytes）
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      alert('ファイルサイズが大きすぎます。5MB以下のファイルをアップロードしてください。');
+      e.target.value = '';
+      return;
+    }
+
+    // 画像の寸法チェック
+    try {
+      const dimensions = await validateImageDimensions(file);
+      if (!dimensions) {
+        alert('画像の読み込みに失敗しました。');
+        e.target.value = '';
+        return;
+      }
+      
+      // 最小サイズチェック（プロフィール画像として100x100px以上）
+      if (dimensions.width < 100 || dimensions.height < 100) {
+        alert('画像サイズが小さすぎます。100x100ピクセル以上の画像をアップロードしてください。');
+        e.target.value = '';
+        return;
+      }
+      
+      // 最大サイズチェック（8000x8000px以下）
+      if (dimensions.width > 8000 || dimensions.height > 8000) {
+        alert('画像サイズが大きすぎます。8000x8000ピクセル以下の画像をアップロードしてください。');
+        e.target.value = '';
+        return;
+      }
+    } catch (error) {
+      console.error('画像の検証エラー:', error);
+      alert('画像の検証中にエラーが発生しました。');
+      e.target.value = '';
+      return;
+    }
+
+    // プレビューを表示
     const previewUrl = URL.createObjectURL(file);
     setAvatarPreview(previewUrl);
+    setIsUploadingAvatar(true);
+
+    // APIを呼び出して画像をアップロード
+    try {
+      if (!user?.id) {
+        alert('ユーザー情報が取得できませんでした。');
+        return;
+      }
+
+      const response = await withErrorHandling(() =>
+        Service.postApiSettingUserImage({
+          userId: user.id,
+          imageFile: file,
+        })
+      );
+
+      if (response.responseStatus === 1 && response.imageUrl) {
+        // 成功時にユーザー情報を更新
+        updateUser({ avatar: response.imageUrl });
+        setAvatarPreview(response.imageUrl);
+      } else {
+        alert('画像のアップロードに失敗しました。');
+        // プレビューを元に戻す
+        if (user?.avatar) {
+          setAvatarPreview(user.avatar);
+        } else {
+          setAvatarPreview(null);
+        }
+      }
+    } catch (error) {
+      console.error('画像アップロードエラー:', error);
+      alert('画像のアップロード中にエラーが発生しました。');
+      // プレビューを元に戻す
+      if (user?.avatar) {
+        setAvatarPreview(user.avatar);
+      } else {
+        setAvatarPreview(null);
+      }
+    } finally {
+      setIsUploadingAvatar(false);
+      // ファイル入力をリセット
+      e.target.value = '';
+    }
   };
 
   const clientNavigation = [
@@ -101,11 +241,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     {
       name: "年次PL",
       href: "/yearlyBudgetActual",
-      icon: ({ className }: { className?: string }) => (
-        <div className={`bg-primary text-white p-1.5 rounded-full flex items-center justify-center ${className || ''}`} style={{ width: '24px', height: '24px' }}>
-          <BarChart3 className="w-3 h-3" />
-        </div>
-      ),
+      icon: PLIcon,
       disabled: false,
       roleRequired: ["0", "1", "2"],
     },
@@ -113,18 +249,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const adminNavigation = [
     {
-      name: "クライアント管理",
-      href: "/clientManagement",
+      name: "ユーザー管理",
+      href: "/userManagement",
       icon: Briefcase,
       disabled: false,
       roleRequired: ["1", "2"],
     },
     {
-      name: "ユーザー管理",
-      href: "/userManagement",
+      name: "管理者ユーザー管理",
+      href: "/adminUserManagement",
       icon: Users,
       disabled: false,
-      roleRequired: ["2"],
+      roleRequired: ["2"],  // role:2のみ
     },
   ];
 
@@ -142,30 +278,38 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const userInfo = (
     <div className="p-4 sm:p-5 lg:p-6 flex justify-center" style={{ background: '#F6FAFC' }}>
       <div className="flex flex-col items-center space-y-2 sm:space-y-3">
-      <button
-        type="button"
-        onClick={handleAvatarClick}
-        className="relative rounded-full border-2 border-gray-200 overflow-hidden group focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 w-20 h-20 sm:w-24 sm:h-24 hover:border-primary transition-colors"
-      >
-        {avatarPreview ? (
-          <img
-            src={avatarPreview}
-            alt={user?.name || "avatar"}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="h-full w-full bg-gray-100 text-gray-400 flex items-center justify-center text-4xl sm:text-5xl font-light">
-            +
-          </div>
-        )}
-      </button>
+        <button
+          type="button"
+          onClick={handleAvatarClick}
+          disabled={isUploadingAvatar}
+          className={`relative rounded-full border-2 border-gray-200 overflow-hidden group focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 w-20 h-20 sm:w-24 sm:h-24 hover:border-primary transition-colors ${
+            isUploadingAvatar ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
+        >
+          {isUploadingAvatar ? (
+            <div className="h-full w-full bg-gray-100 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : avatarPreview ? (
+            <img
+              src={avatarPreview}
+              alt={user?.name || "avatar"}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="h-full w-full bg-gray-100 text-gray-400 flex items-center justify-center text-4xl sm:text-5xl font-light">
+              +
+            </div>
+          )}
+        </button>
   
         <input
           ref={avatarInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/jpg,image/png,image/gif"
           className="hidden"
           onChange={handleAvatarChange}
+          disabled={isUploadingAvatar}
         />  
         <div className="text-center">
           <p className="text-xs sm:text-sm text-gray-800">
@@ -174,40 +318,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       </div>
     </div>
-  );
-
-  const userSwitcher = (
-    <>
-      {(userRole === "1" || userRole === "2") && managedUsers.length > 0 && (
-        <div className="px-3 py-2 sm:p-3 lg:p-4" style={{ background: '#F6FAFC' }}>
-          <div className="relative">
-            <select
-              value={selectedUser?.id || ""}
-              onChange={(e) => {
-                switchUser(e.target.value);
-                if (sidebarOpen) {
-                  setSidebarOpen(false);
-                }
-              }}
-              className="w-full text-xs sm:text-sm border border-gray-300 rounded px-2 py-1.5 pr-8 appearance-none bg-white focus:outline-none focus:ring-1 focus:ring-primary"
-              style={{
-                backgroundImage:
-                  'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "calc(100% - 4px) center",
-                backgroundSize: "16px",
-              }}
-            >
-              {managedUsers.map((managedUser) => (
-                <option key={managedUser.id} value={managedUser.id}>
-                  表示中: {managedUser.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      )}
-    </>
   );
 
   return (
@@ -234,69 +344,82 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               />
             </div>
 
-            {/* userInfo - 背景色と中央揃え */}
-            <div className="p-4 xl:p-6 flex justify-center" style={{ background: '#F6FAFC' }}>
-              <div className="flex flex-col items-center space-y-2 xl:space-y-3">
-              <button
-                type="button"
-                onClick={handleAvatarClick}
-                className="relative rounded-full border-2 border-gray-200 overflow-hidden group focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 w-20 h-20 xl:w-24 xl:h-24 hover:border-primary transition-colors"
-              >
-                {avatarPreview ? (
-                  <img
-                    src={avatarPreview}
-                    alt={user?.name || "avatar"}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="h-full w-full bg-gray-100 text-gray-400 flex items-center justify-center text-4xl xl:text-5xl font-light">
-                    +
+            {/* userInfo または userSwitcher - role:1,2の場合はプルダウンのみ */}
+            {userRole !== null && ["1", "2"].includes(userRole) ? (
+              // 管理者・マネージャーの場合：ユーザー選択プルダウンのみ
+              <div className="p-4 xl:p-6" style={{ background: '#F6FAFC' }}>
+                {managedUsers.length > 0 ? (
+                  <div className="relative">
+                    <select
+                      value={selectedUser?.id || ""}
+                      onChange={(e) => {
+                        switchUser(e.target.value);
+                        if (sidebarOpen) {
+                          setSidebarOpen(false);
+                        }
+                      }}
+                      className="w-full text-xs xl:text-sm border border-gray-300 rounded px-2 py-1.5 pr-8 appearance-none bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+                      style={{
+                        backgroundImage:
+                          'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
+                        backgroundRepeat: "no-repeat",
+                        backgroundPosition: "calc(100% - 4px) center",
+                        backgroundSize: "16px",
+                      }}
+                    >
+                      {managedUsers.map((managedUser) => (
+                        <option key={managedUser.id} value={managedUser.id}>
+                          {managedUser.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+                ) : (
+                  <p className="text-xs xl:text-sm text-gray-500 text-center">管理対象ユーザーがいません</p>
                 )}
-              </button>
-
-                <input
-                  ref={avatarInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleAvatarChange}
-                />
-                <div className="text-center">
-                  <p className="text-xs xl:text-sm text-gray-800">
-                    {user?.name || "User Name"}
-                  </p>
-                </div>
               </div>
-            </div>
-
-            {/* userSwitcher - 背景色を調整 */}
-            {(userRole === "1" || userRole === "2") && managedUsers.length > 0 && (
-              <div className="px-3 py-2 xl:p-4" style={{ background: '#F6FAFC' }}>
-                <div className="relative">
-                  <select
-                    value={selectedUser?.id || ""}
-                    onChange={(e) => {
-                      switchUser(e.target.value);
-                      if (sidebarOpen) {
-                        setSidebarOpen(false);
-                      }
-                    }}
-                    className="w-full text-xs xl:text-sm border border-gray-300 rounded px-2 py-1.5 pr-8 appearance-none bg-white focus:outline-none focus:ring-1 focus:ring-primary"
-                    style={{
-                      backgroundImage:
-                        'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
-                      backgroundRepeat: "no-repeat",
-                      backgroundPosition: "calc(100% - 4px) center",
-                      backgroundSize: "16px",
-                    }}
+            ) : (
+              // 一般ユーザーの場合：アバター画像表示
+              <div className="p-4 xl:p-6 flex justify-center" style={{ background: '#F6FAFC' }}>
+                <div className="flex flex-col items-center space-y-2 xl:space-y-3">
+                  <button
+                    type="button"
+                    onClick={handleAvatarClick}
+                    disabled={isUploadingAvatar}
+                    className={`relative rounded-full border-2 border-gray-200 overflow-hidden group focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 w-20 h-20 xl:w-24 xl:h-24 hover:border-primary transition-colors ${
+                      isUploadingAvatar ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
                   >
-                    {managedUsers.map((managedUser) => (
-                      <option key={managedUser.id} value={managedUser.id}>
-                        表示中: {managedUser.name}
-                      </option>
-                    ))}
-                  </select>
+                    {isUploadingAvatar ? (
+                      <div className="h-full w-full bg-gray-100 flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                      </div>
+                    ) : avatarPreview ? (
+                      <img
+                        src={avatarPreview}
+                        alt={user?.name || "avatar"}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-gray-100 text-gray-400 flex items-center justify-center text-4xl xl:text-5xl font-light">
+                        +
+                      </div>
+                    )}
+                  </button>
+
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/gif"
+                    className="hidden"
+                    onChange={handleAvatarChange}
+                    disabled={isUploadingAvatar}
+                  />
+                  <div className="text-center">
+                    <p className="text-xs xl:text-sm break-all text-gray-800 px-2">
+                      {user?.name || "User Name"}
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
@@ -386,17 +509,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </nav>
             {/* お問い合わせボタンを追加 */}
             <div className="p-4 xl:p-6">
-              <button
-                onClick={() => {
-                  // お問い合わせ処理（例：モーダル表示、ページ遷移など）
-                  //window.location.href = 'mailto:support@example.com';
-                  // または
-                  // window.open('/contact', '_blank');
-                }}
-                className="w-full text-xs xl:text-sm font-medium bg-primary text-white border border-primary transition-colors hover:bg-primary/90 px-3 py-1.5 xl:px-4 xl:py-2 rounded-full"
+              <Link
+                to="/contact"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full text-xs xl:text-sm font-medium bg-primary text-white border border-primary transition-colors hover:bg-primary/90 px-3 py-1.5 xl:px-4 xl:py-2 rounded-full block text-center"
               >
                 お問い合わせ
-              </button>
+              </Link>
             </div>
           </div>
         </aside>
@@ -495,8 +615,46 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <X className="h-5 w-5 sm:h-6 sm:w-6" />
                 </button>
               </div>
-              {userInfo}
-              {userSwitcher}
+              
+              {/* モバイル用：role:1,2の場合はプルダウンのみ */}
+              {userRole !== null && ["1", "2"].includes(userRole) ? (
+                // 管理者・マネージャーの場合：ユーザー選択プルダウンのみ
+                <div className="p-4 sm:p-5" style={{ background: '#F6FAFC' }}>
+                  {managedUsers.length > 0 ? (
+                    <div className="relative">
+                      <select
+                        value={selectedUser?.id || ""}
+                        onChange={(e) => {
+                          switchUser(e.target.value);
+                          if (sidebarOpen) {
+                            setSidebarOpen(false);
+                          }
+                        }}
+                        className="w-full text-xs sm:text-sm border border-gray-300 rounded px-2 py-1.5 pr-8 appearance-none bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+                        style={{
+                          backgroundImage:
+                            'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
+                          backgroundRepeat: "no-repeat",
+                          backgroundPosition: "calc(100% - 4px) center",
+                          backgroundSize: "16px",
+                        }}
+                      >
+                        {managedUsers.map((managedUser) => (
+                          <option key={managedUser.id} value={managedUser.id}>
+                            {managedUser.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <p className="text-xs sm:text-sm text-gray-500 text-center">管理対象ユーザーがいません</p>
+                  )}
+                </div>
+              ) : (
+                // 一般ユーザーの場合：アバター画像表示
+                userInfo
+              )}
+
               <nav className="flex-1 overflow-y-auto" style={{ overflowX: 'hidden' }}>
                 <div className="space-y-1 sm:space-y-2 pl-6 sm:pl-9 pr-3 pt-3">
                   {filteredClientNavigation.map((item) => {
@@ -582,6 +740,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   })}
                 </div>
               </nav>
+              {/* お問い合わせボタンを追加（モバイル用） */}
+              <div className="p-4 sm:p-6">
+                <Link
+                  to="/contact"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full text-xs sm:text-sm font-medium bg-primary text-white border border-primary transition-colors hover:bg-primary/90 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full block text-center"
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  お問い合わせ
+                </Link>
+              </div>
             </div>
           </div>
         )}

@@ -1,35 +1,18 @@
 import React, { useState, useEffect } from "react";
-import { BarChart3 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { Service } from "../api/services/Service";
 import complate_icon from "../assets/complate_icon.png";
-import { loadPlPlan, loadPlActual } from "../utils/mandalaIntegration";
+import plIcon from "../assets/icon_pl.png";
+import banner_1 from "../assets/banner/banner_1.png";
+import banner_2 from "../assets/banner/banner_2.png";
+import banner_3 from "../assets/banner/banner_3.png";
 
 type MandalaMajorCell = {
   id: string;
   title: string;
   achievement: number;
   status: "not_started" | "in_progress" | "achieved";
-};
-
-const getMandalaGrid = () => {
-  const centerGoal = localStorage.getItem("mandala_center_goal_v2") || "";
-
-  let majorCells: MandalaMajorCell[] = [];
-  const stored = localStorage.getItem("mandala_major_cells_v2");
-
-  if (stored) {
-    try {
-      majorCells = JSON.parse(stored) as MandalaMajorCell[];
-    } catch (e) {
-      console.error("mandala_major_cells_v2 のパースに失敗しました", e);
-    }
-  }
-
-  return {
-    centerGoal,
-    majorCells: majorCells.slice(0, 8),
-  };
 };
 
 const formatTitleBy8Chars = (text: string): string => {
@@ -46,13 +29,41 @@ const formatTitleBy8Chars = (text: string): string => {
   return chunks.join("\n");
 };
 
+// FY（会計年度）を計算する関数
+const calculateFiscalYear = (
+  currentYear: number,
+  currentMonth: number,
+  fiscalYearStartMonth: number
+): number => {
+  // 現在の月が会計年度開始月以上の場合、現在の年がFY年
+  // 現在の月が会計年度開始月未満の場合、前年がFY年
+  if (currentMonth >= fiscalYearStartMonth) {
+    return currentYear;
+  } else {
+    return currentYear - 1;
+  }
+};
+
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const {} = useAuth();
+  const { selectedUser, userSetup, loadUserSetup } = useAuth();
   const [currentDate] = useState(new Date());
   const [isVisible, setIsVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [mandalaGrid, setMandalaGrid] = useState<{
+    centerGoal: string;
+    majorCells: MandalaMajorCell[];
+  }>({
+    centerGoal: "",
+    majorCells: Array.from({ length: 8 }, (_, i) => ({
+      id: `large_${i + 1}`,
+      title: "",
+      achievement: 0,
+      status: "not_started" as const,
+    })),
+  });
   const [currentYearData, setCurrentYearData] = useState({
-    year: 1,
+    fiscalYear: 0,
     revenueTarget: 0,
     revenueActual: 0,
     grossProfitTarget: 0,
@@ -61,39 +72,143 @@ const Dashboard: React.FC = () => {
     operatingProfitActual: 0,
   });
 
-  const mandalaGrid = getMandalaGrid();
-
   const formatCurrency = (amount: number): string => {
     const manyen = Math.round(amount / 10000);
-    return manyen.toLocaleString('ja-JP');
+    
+    // 1億円（10,000万円）以上の場合
+    if (manyen >= 10000) {
+      const oku = Math.floor(manyen / 10000);
+      const man = manyen % 10000;
+      
+      if (man === 0) {
+        return `${oku}億`;
+      } else {
+        return `${oku}億${man.toLocaleString()}万`;
+      }
+    }
+    
+    return `${manyen.toLocaleString()}万`;
   };
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsVisible(true);
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
+  const [animationComplete, setAnimationComplete] = useState(false);
 
   useEffect(() => {
-    const plan = loadPlPlan();
-    const actual = loadPlActual();
+    if (!isLoading) {
+      const timer = setTimeout(() => {
+        setIsVisible(true);
+      }, 100);
+      
+      const completeTimer = setTimeout(() => {
+        setAnimationComplete(true);
+      }, 100 + 1500 + 700); // 100ms(初期) + 1500ms(最大delay) + 700ms(duration)
+      
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(completeTimer);
+      };
+    }
+  }, [isLoading]);
 
-    const targetYear = 1;
+  useEffect(() => {
+    const fetchHomeData = async () => {
+      if (!selectedUser?.id) {
+        setIsLoading(false);
+        return;
+      }
 
-    const yearPlan = plan?.yearly.find((y) => y.year === targetYear);
-    const yearActual = actual?.yearly.find((a) => a.year === targetYear);
+      try {
+        setIsLoading(true);
+        setIsVisible(false); // データ取得開始時にリセット
+        setAnimationComplete(false);
 
-    setCurrentYearData({
-      year: currentDate.getFullYear(),
-      revenueTarget: yearPlan?.revenueTarget || 0,
-      revenueActual: yearActual?.revenueActual || 0,
-      grossProfitTarget: yearPlan?.grossProfitTarget || 0,
-      grossProfitActual: yearActual?.grossProfitActual || 0,
-      operatingProfitTarget: yearPlan?.operatingProfitTarget || 0,
-      operatingProfitActual: yearActual?.operatingProfitActual || 0,
-    });
-  }, [currentDate]);
+        // userSetupが読み込まれていない場合は読み込む
+        let currentUserSetup = userSetup;
+        if (!currentUserSetup) {
+          await loadUserSetup();
+          // loadUserSetup後、userSetupが更新されるまで少し待つ
+          await new Promise(resolve => setTimeout(resolve, 100));
+          // 再度userSetupを取得
+          const { Service } = await import("../api/services/Service");
+          const { withErrorHandling } = await import("../utils/apiErrorHandler");
+          const setupResponse = await withErrorHandling(() => 
+            Service.getApiSettingUser(selectedUser.id)
+          );
+          if (setupResponse.responseStatus === 1 && setupResponse.settingSchema) {
+            currentUserSetup = {
+              fiscalYearStartMonth: setupResponse.settingSchema.fiscalYearStartMonth || 4,
+              fiscalYearStartYear: setupResponse.settingSchema.fiscalYearStartYear || new Date().getFullYear(),
+            } as any;
+          }
+        }
+
+        const response = await Service.getApiHome(selectedUser.id);
+
+        if (response.responseStatus === 1) {
+          // マンダラグリッドのデータを更新
+          // mainGoalSchemaから中心目標を取得
+          const centerGoal = response.mainGoalSchema?.goal_title || "";
+          
+          const majorCells: MandalaMajorCell[] = Array.from({ length: 8 }, (_, i) => ({
+            id: `large_${i + 1}`,
+            title: "",
+            achievement: 0,
+            status: "not_started" as const,
+          }));
+
+          // largeGoalSchemaは配列として扱う
+          if (response.largeGoalSchema && Array.isArray(response.largeGoalSchema)) {
+            response.largeGoalSchema.forEach((largeGoal) => {
+              // positionは1-8の範囲
+              if (largeGoal.position && largeGoal.position >= 1 && largeGoal.position <= 8) {
+                const index = largeGoal.position - 1;
+                majorCells[index] = {
+                  id: `large_${largeGoal.position}`,
+                  title: largeGoal.goal_title || "",
+                  achievement: Math.round((largeGoal.progress || 0) * 100),
+                  status:
+                    (largeGoal.progress || 0) >= 1
+                      ? "achieved"
+                      : (largeGoal.progress || 0) > 0
+                      ? "in_progress"
+                      : "not_started",
+                };
+              }
+            });
+          }
+
+          setMandalaGrid({
+            centerGoal,
+            majorCells,
+          });
+
+          // FY（会計年度）を計算
+          const fiscalYearStartMonth = currentUserSetup?.fiscalYearStartMonth || 4;
+          const currentYear = currentDate.getFullYear();
+          const currentMonth = currentDate.getMonth() + 1; // getMonth()は0-11を返すため+1
+          const fiscalYear = calculateFiscalYear(currentYear, currentMonth, fiscalYearStartMonth);
+
+          // 年次PLデータを更新
+          setCurrentYearData({
+            fiscalYear,
+            revenueTarget: response.saleSchema?.saleTarget || 0,
+            revenueActual: response.saleSchema?.saleResult || 0,
+            grossProfitTarget: response.grossProfitSchema?.grossProfitTarget || 0,
+            grossProfitActual: response.grossProfitSchema?.grossProfitResult || 0,
+            operatingProfitTarget: response.operatingProfitSchema?.operatingProfitTarget || 0,
+            operatingProfitActual: response.operatingProfitSchema?.operatingProfitResult || 0,
+          });
+        } else {
+          console.warn("ホーム画面データ取得に失敗しました。");
+        }
+      } catch (error) {
+        console.error("ホーム画面データ取得エラー:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchHomeData();
+  }, [selectedUser?.id, currentDate, userSetup, loadUserSetup]);
 
   const revenueRate =
     currentYearData.revenueTarget > 0
@@ -120,6 +235,17 @@ const Dashboard: React.FC = () => {
         )
       : 0;
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-text/70">データを読み込んでいます...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div 
@@ -130,12 +256,13 @@ const Dashboard: React.FC = () => {
       >
         {/* タイトル部分 */}
         <div 
-          className={`bg-background rounded-card-lg transition-all duration-700 ${
+          className={`bg-background rounded-card-lg ${
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'
           }`}
           style={{ 
             boxShadow: '0 2px 12px rgba(0, 0, 0, 0.08)',
-            padding: 'clamp(16px, 4vw, 24px)'
+            padding: 'clamp(16px, 4vw, 24px)',
+            transition: 'opacity 0.7s ease, transform 0.7s ease'
           }}
         >
           <h2 
@@ -151,12 +278,12 @@ const Dashboard: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
             {/* マンダラチャート セクション */}
             <div
-              className={`bg-background cursor-pointer hover:shadow-card-hover transition-all duration-700 group rounded-card-lg ${
-                isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-8'
-              }`}
+              className={`bg-background cursor-pointer group rounded-card-lg transition-all ${
+                isVisible ? 'opacity-100 translate-x-0 duration-700' : 'opacity-0 -translate-x-8 duration-700'
+              } hover:shadow-card-hover hover:-translate-y-2 hover:scale-[1.02] hover:duration-150 hover:ease-out`}
               style={{ 
                 boxShadow: '0 2px 12px rgba(0, 0, 0, 0.08)',
-                transitionDelay: '500ms',
+                transitionDelay: animationComplete ? '0ms' : '500ms',
                 padding: 'clamp(16px, 4vw, 24px)'
               }}
               onClick={() => navigate("/mandalaChart")}
@@ -270,12 +397,12 @@ const Dashboard: React.FC = () => {
 
             {/* 予実管理（年次PL） セクション */}
             <div
-              className={`bg-gradient-to-br bg-background to-primary/5 cursor-pointer hover:shadow-card-hover transition-all duration-700 group rounded-card-lg ${
-                isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-8'
-              }`}
+              className={`bg-gradient-to-br bg-background to-primary/5 cursor-pointer group rounded-card-lg transition-all ${
+                isVisible ? 'opacity-100 translate-x-0 duration-700' : 'opacity-0 translate-x-8 duration-700'
+              } hover:shadow-card-hover hover:-translate-y-2 hover:scale-[1.02] hover:duration-150 hover:ease-out`}
               style={{ 
                 boxShadow: '0 2px 12px rgba(0, 0, 0, 0.08)',
-                transitionDelay: '1000ms',
+                transitionDelay: animationComplete ? '0ms' : '1000ms',
                 padding: 'clamp(16px, 4vw, 24px)'
               }}
               onClick={() => navigate("/yearlyBudgetActual")}
@@ -287,19 +414,16 @@ const Dashboard: React.FC = () => {
                 }}
               >
                 <div className="flex items-center space-x-2 sm:space-x-3">
-                  <div 
-                    className="bg-primary text-white rounded-full flex items-center justify-center"
+                  <img
+                    src={plIcon}
+                    alt="PL"
                     style={{
-                      padding: 'clamp(8px, 2vw, 12px)'
+                      width: 'clamp(32px, 6vw, 40px)',
+                      height: 'clamp(32px, 6vw, 40px)',
+                      borderRadius: '50%',
+                      objectFit: 'cover'
                     }}
-                  >
-                    <BarChart3 
-                      style={{
-                        width: 'clamp(18px, 4vw, 24px)',
-                        height: 'clamp(18px, 4vw, 24px)'
-                      }}
-                    />
-                  </div>
+                  />
                   <div>
                     <h2 
                       className="font-bold text-text"
@@ -329,7 +453,7 @@ const Dashboard: React.FC = () => {
                     marginBottom: 'clamp(8px, 2vw, 12px)'
                   }}
                 >
-                  {currentYearData.year}年の実績
+                  FY{currentYearData.fiscalYear}の実績
                 </div>
 
                 {/* 売上 */}
@@ -381,10 +505,10 @@ const Dashboard: React.FC = () => {
                     }}
                   >
                     <span>
-                      実績: {formatCurrency(currentYearData.revenueActual)}万円
+                      実績: {formatCurrency(currentYearData.revenueActual)}円
                     </span>
                     <span>
-                      目標: {formatCurrency(currentYearData.revenueTarget)}万円
+                      目標: {formatCurrency(currentYearData.revenueTarget)}円
                     </span>
                   </div>
                 </div>
@@ -438,10 +562,10 @@ const Dashboard: React.FC = () => {
                     }}
                   >
                     <span>
-                      実績: {formatCurrency(currentYearData.grossProfitActual)}万円
+                      実績: {formatCurrency(currentYearData.grossProfitActual)}円
                     </span>
                     <span>
-                      目標: {formatCurrency(currentYearData.grossProfitTarget)}万円
+                      目標: {formatCurrency(currentYearData.grossProfitTarget)}円
                     </span>
                   </div>
                 </div>
@@ -495,10 +619,10 @@ const Dashboard: React.FC = () => {
                     }}
                   >
                     <span>
-                      実績: {formatCurrency(currentYearData.operatingProfitActual)}万円
+                      実績: {formatCurrency(currentYearData.operatingProfitActual)}円
                     </span>
                     <span>
-                      目標: {formatCurrency(currentYearData.operatingProfitTarget)}万円
+                      目標: {formatCurrency(currentYearData.operatingProfitTarget)}円
                     </span>
                   </div>
                 </div>
@@ -507,7 +631,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* In the works セクション */}        
+        {/* Information セクション */}        
         <div 
           className={`rounded-card-lg transition-all duration-700 ${
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
@@ -525,7 +649,7 @@ const Dashboard: React.FC = () => {
               marginBottom: 'clamp(12px, 3vw, 16px)'
             }}
           >
-            In the works...
+            Information
           </h2>
           <div 
             className="grid grid-cols-1 md:grid-cols-3"
@@ -533,27 +657,37 @@ const Dashboard: React.FC = () => {
               gap: 'clamp(12px, 3vw, 16px)'
             }}
           >
-            {[0, 1, 2].map((index) => (
-              <div 
+            {[
+              { img: banner_1, link: 'https://etomoji.co.jp/kanaeru/' },
+              { img: banner_2, link: 'https://etomoji.co.jp/hataraku-guild/' },
+              { img: banner_3, link: 'https://etomoji.co.jp/' }
+            ].map((banner, index) => (
+              <a      
                 key={index}
-                className={`flex items-center justify-center bg-background rounded-card-lg transition-all duration-500 ${
-                  isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
-                }`}
+                href={banner.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`block bg-background rounded-card-lg overflow-hidden transition-all ${
+                  isVisible ? 'opacity-100 scale-100 duration-300' : 'opacity-0 scale-95 duration-300'
+                } hover:shadow-card-hover hover:-translate-y-2 hover:scale-[1.03] hover:duration-150 hover:ease-out`}
                 style={{ 
                   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-                  transitionDelay: `${400 + index * 100}ms`,
-                  height: 'clamp(120px, 25vw, 160px)'
+                  transitionDelay: animationComplete ? '0ms' : `${400 + index * 100}ms`,
+                  aspectRatio: '16 / 9',
+                  width: '100%',
                 }}
               >
-                <p 
-                  className="text-text/40"
+                <img
+                  src={banner.img}
+                  alt={`Banner ${index + 1}`}
+                  className="w-full h-full"
                   style={{
-                    fontSize: 'clamp(12px, 2.8vw, 14px)'
+                    objectFit: 'contain',  // cover → contain に変更
+                    //backgroundColor: '#13AE67',  // 背景色を追加（余白部分）
+                    imageRendering: '-webkit-optimize-contrast'
                   }}
-                >
-                  Coming Soon
-                </p>
-              </div>
+                />
+              </a>
             ))}
           </div>
         </div>

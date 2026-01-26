@@ -8,7 +8,7 @@ export default defineConfig({
   publicDir: "public",
   server: {
     port: 5180,
-    allowedHosts: ["localhost:5180", "staging.kanaeru.jp", "kanaeru.jp"],
+    allowedHosts: ["localhost:5180", "staging.kanaeru.etomoji.co.jp", "kanaeru.etomoji.co.jp"],
     proxy: {
       '/api': {
         target: 'http://localhost:8087',

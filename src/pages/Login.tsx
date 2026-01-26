@@ -1,15 +1,35 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { Navigate, Link } from "react-router-dom";
+import { Navigate, Link, useLocation } from "react-router-dom"; // ★★★ useLocation追加 ★★★
 import CryptoJS from "crypto-js";
 import { Service } from "../api/services/Service";
 
 const Login: React.FC = () => {
   const { user, isLoading, login, sessionExpired, clearSessionExpired } = useAuth();
+  const location = useLocation(); // ★★★ 追加 ★★★
+  
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [showPassword, setShowPassword] = useState(false); 
+  const [successMessage, setSuccessMessage] = useState(""); // ★★★ 追加 ★★★
+  const [showPassword, setShowPassword] = useState(false);
+
+  // ★★★ Setup画面から渡されたstateを受け取る ★★★
+  useEffect(() => {
+    if (location.state) {
+      const state = location.state as { email?: string; message?: string };
+      
+      if (state.email) {
+        setEmail(state.email);
+      }
+      
+      if (state.message) {
+        setSuccessMessage(state.message);
+        // 5秒後にメッセージを消す
+        setTimeout(() => setSuccessMessage(""), 5000);
+      }
+    }
+  }, [location.state]);
 
   // セッション期限切れメッセージを表示
   React.useEffect(() => {
@@ -17,7 +37,7 @@ const Login: React.FC = () => {
       setError("セッションの有効期限が切れました。再度ログインしてください。");
       clearSessionExpired();
     }
-  }, [sessionExpired, clearSessionExpired]); 
+  }, [sessionExpired, clearSessionExpired]);
 
   // パスワードをSHA-256でハッシュ化
   const sha256 = (text: string): string => {
@@ -26,6 +46,9 @@ const Login: React.FC = () => {
 
   // すでにログイン済みの場合はリダイレクト
   if (user && !isLoading) {
+    if (user.role === "1") {
+      return <Navigate to="/userManagement" replace />;
+    }
     return (
       <Navigate
         to={user.isSetupComplete ? "/mandalaChart" : "/setup"}
@@ -37,36 +60,45 @@ const Login: React.FC = () => {
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccessMessage(""); // ★★★ ログイン試行時にメッセージをクリア ★★★
 
     try {
-      // パスワードをハッシュ化
       const passwordHash = sha256(password);
       
       console.log("ログイン試行:", { email, passwordHash });
       
-      // APIを呼び出してログイン
       const response = await Service.postApiAuthLogin(email, passwordHash);
       
       console.log("ログインレスポンス:", response);
       
-      // レスポンスステータスが1（成功）の場合のみログイン処理を続行
       if (response.responseStatus === 1) {
-        // トークンをCookieに保存
         if (response.token) {
           const expires = new Date();
-          expires.setTime(expires.getTime() + 24 * 60 * 60 * 1000); // 24時間
+          expires.setTime(expires.getTime() + 24 * 60 * 60 * 1000);
           document.cookie = `authToken=${response.token};expires=${expires.toUTCString()};path=/;SameSite=Strict`;
         }
         
-        // ユーザーIDとロールをAuthContextのlogin関数に渡す
         await login(
           email,
           passwordHash,
           response.userId,
           response.role,
           response.token,
-          response.name
+          response.name,
+          response.userImageUrl
         );
+
+        if (response.role === "1") {
+          window.location.href = "/userManagement";
+          return;
+        } else if (response.role === "2") {
+          window.location.href = "/adminUserManagement";
+          return;
+        } else {
+          // ★★★ 一般ユーザーの遷移先：HOME ★★★
+          window.location.href = "/";
+          return;
+        }
       } else {
         throw new Error("メールアドレスまたはパスワードが正しくありません");
       }
@@ -74,16 +106,14 @@ const Login: React.FC = () => {
     } catch (err) {
       console.error("認証エラー:", err);
       
-      // エラーの詳細を表示
       if (err && typeof err === 'object' && 'body' in err) {
         console.error("エラーボディ:", err.body);
       }
       
-      // ユーザーフレンドリーなエラーメッセージ
       let errorMessage = "ログインに失敗しました";
       if (err instanceof Error) {
         if (err.message.includes("500")) {
-          errorMessage = "サーバーエラーが発生しました。しばらく経ってから再度お試しください。";
+          errorMessage = "サーバーエラーが発生しました。\nしばらく経ってから再度お試しください。";
         } else if (err.message.includes("404")) {
           errorMessage = "ログインAPIが見つかりません。";
         } else if (err.message.includes("401") || err.message.includes("403")) {
@@ -102,7 +132,7 @@ const Login: React.FC = () => {
       <div className="max-w-md w-full space-y-8">
         {/* ロゴとタイトル */}
         <div className="text-center">
-         <div className="mx-auto h-24 w-24 sm:h-40 sm:w-40 flex items-center justify-center mb-6">
+          <div className="mx-auto h-24 w-24 sm:h-40 sm:w-40 flex items-center justify-center mb-6">
             <div
               className="w-full h-full bg-contain bg-no-repeat bg-center"
               style={{
@@ -117,6 +147,13 @@ const Login: React.FC = () => {
         {/* ログインフォーム */}
         <div className="bg-white rounded-lg shadow-xl p-8">
           <div className="space-y-6">
+            {/* ★★★ 成功メッセージ ★★★ */}
+            {successMessage && (
+              <div className="text-center text-sm text-green-600 bg-green-50 p-3 rounded-md">
+                {successMessage}
+              </div>
+            )}
+
             {/* エラーメッセージ */}
             {error && (
               <div className="text-center text-sm text-red-500">{error}</div>
@@ -169,46 +206,28 @@ const Login: React.FC = () => {
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                   >
                     {showPassword ? (
-                      // 目を開いたアイコン（パスワード表示中）
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                        />
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                       </svg>
                     ) : (
-                      // 目を閉じたアイコン（パスワード非表示中）
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                        />
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                       </svg>
                     )}
                   </button>
                 </div>
               </div>
-
+              
+              <div className="text-center text-sm">
+                <Link
+                  to="/password-reset-request"
+                  className="text-primary hover:text-primary/80 hover:underline"
+                >
+                  パスワードをお忘れの方はこちら
+                </Link>
+              </div>
+              
               <div>
                 <button
                   type="submit"
@@ -223,7 +242,7 @@ const Login: React.FC = () => {
             {/* 会員登録リンク */}
             <div className="text-center">
               <p className="text-sm text-gray-600">
-                アカウントをお持ちでない方は
+                アカウントをお持ちでない方
               </p>
               <Link
                 to="/setup"

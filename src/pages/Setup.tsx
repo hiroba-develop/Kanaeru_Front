@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { Navigate, Link } from "react-router-dom";
+import { Navigate, Link, useNavigate } from "react-router-dom";
 import CryptoJS from "crypto-js";
 import { Service } from "../api/services/Service"; 
 
@@ -18,10 +18,15 @@ const Setup: React.FC = () => {
     completeSetup,
     isLoading: authLoading,
   } = useAuth();
+  const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth() + 1; // 1-12
 
   const [setupData, setSetupData] = useState<InitialSetup>({
     userName: "",
@@ -32,8 +37,8 @@ const Setup: React.FC = () => {
     passwordConfirm: "",
     currentAssets: 0,
     companySize: "個人事業主",
-    fiscalYearStartMonth: 4,
-    fiscalYearStartYear: new Date().getFullYear(),
+    fiscalYearStartMonth: currentMonth, // 現在の月を初期値に
+    fiscalYearStartYear: currentYear,   // 現在の年を初期値に
     industry: "IT・ソフトウェア",
     financialKnowledge: "初心者",
   });
@@ -267,6 +272,12 @@ const Setup: React.FC = () => {
       if (response.responseStatus === 1) {
         // 登録成功時、設定完了（ローカル状態の更新には元のsetupDataを使用）
         completeSetup(setupData);
+        
+        // 成功メッセージを表示
+        alert("会員登録が完了しました。ログイン画面に移動します。");
+        
+        // ログイン画面に遷移
+        navigate("/login");
       } else {
         throw new Error("登録に失敗しました");
       }
@@ -289,14 +300,29 @@ const Setup: React.FC = () => {
   const renderStepContent = () => {
     switch (currentStep) {
       case 0: // ユーザー情報
-        return (
+      return (
+        <form onSubmit={(e) => { e.preventDefault(); handleNext(); }}>
+          {/* ブラウザ用の隠しフィールド（パスワードマネージャーに正しく認識させる） */}
+          <input
+            type="email"
+            name="username"
+            autoComplete="username"
+            value={setupData.email}
+            onChange={(e) => setSetupData({ ...setupData, email: e.target.value })}
+            style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px' }}
+            tabIndex={-1}
+            aria-hidden="true"
+          />
+          
           <div className="space-y-6">
+            {/* ユーザー名（表示順は変更なし） */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 ユーザー名<span className="text-red-500 ml-1">*</span>
               </label>
               <input
                 type="text"
+                name="name"
                 value={setupData.userName}
                 onChange={(e) =>
                   setSetupData({ ...setupData, userName: e.target.value })
@@ -312,20 +338,21 @@ const Setup: React.FC = () => {
               </p>
             </div>
 
-            {/* メールアドレス入力欄を追加 */}
+            {/* メールアドレス */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 メールアドレス<span className="text-red-500 ml-1">*</span>
               </label>
               <input
                 type="email"
+                name="email"
                 value={setupData.email}
                 onChange={(e) =>
                   setSetupData({ ...setupData, email: e.target.value })
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary focus:border-primary"
                 placeholder="example@example.com"
-                autoComplete="off"
+                autoComplete="email"
                 maxLength={100}
                 required
               />
@@ -334,12 +361,14 @@ const Setup: React.FC = () => {
               </p>
             </div>
 
+            {/* 会社名 */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 会社名
               </label>
               <input
                 type="text"
+                name="organization"
                 value={setupData.companyName}
                 onChange={(e) =>
                   setSetupData({ ...setupData, companyName: e.target.value })
@@ -347,20 +376,21 @@ const Setup: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary focus:border-primary"
                 placeholder="会社名を入力してください"
                 autoComplete="off"
-                maxLength={100}
-                required
+                maxLength={50}
               />
               <p className="text-xs text-gray-500 mt-1 text-right">
-                {setupData.companyName.length}/100文字
+                {setupData.companyName.length}/50文字
               </p>
             </div>
 
+            {/* 電話番号 */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 電話番号
               </label>
               <input
                 type="tel"
+                name="tel"
                 value={setupData.phoneNumber}
                 onChange={(e) =>
                   setSetupData({ ...setupData, phoneNumber: e.target.value })
@@ -369,13 +399,13 @@ const Setup: React.FC = () => {
                 placeholder="電話番号を入力してください"
                 autoComplete="off"
                 maxLength={15}
-                required
               />
               <p className="text-xs text-gray-500 mt-1 text-right">
                 {setupData.phoneNumber.length}/15文字
               </p>
             </div>
 
+            {/* パスワード */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 パスワード<span className="text-red-500 ml-1">*</span>
@@ -383,6 +413,7 @@ const Setup: React.FC = () => {
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
+                  name="password"
                   value={setupData.password}
                   onChange={(e) =>
                     setSetupData({ ...setupData, password: e.target.value })
@@ -399,40 +430,13 @@ const Setup: React.FC = () => {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                 >
                   {showPassword ? (
-                    // 目を開いたアイコン（パスワード表示中）
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                      />
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
                   ) : (
-                    // 目を閉じたアイコン（パスワード非表示中）
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                      />
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                     </svg>
                   )}
                 </button>
@@ -447,6 +451,7 @@ const Setup: React.FC = () => {
               </div>
             </div>
 
+            {/* パスワード確認 */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 パスワード（確認用）<span className="text-red-500 ml-1">*</span>
@@ -454,6 +459,7 @@ const Setup: React.FC = () => {
               <div className="relative">
                 <input
                   type={showPasswordConfirm ? "text" : "password"}
+                  name="password-confirm"
                   value={setupData.passwordConfirm}
                   onChange={(e) =>
                     setSetupData({ ...setupData, passwordConfirm: e.target.value })
@@ -470,40 +476,13 @@ const Setup: React.FC = () => {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                 >
                   {showPasswordConfirm ? (
-                    // 目を開いたアイコン（パスワード表示中）
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                      />
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
                   ) : (
-                    // 目を閉じたアイコン（パスワード非表示中）
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                      />
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                     </svg>
                   )}
                 </button>
@@ -519,8 +498,12 @@ const Setup: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            {/* 隠しsubmitボタン */}
+            <button type="submit" style={{ display: 'none' }} />
           </div>
-        );
+        </form>
+      );
 
       case 1: // 基本情報
         return (
@@ -585,10 +568,9 @@ const Setup: React.FC = () => {
                       fiscalYearStartYear: parseInt(e.target.value),
                       // 年が変更された時、月の制限を考慮
                       fiscalYearStartMonth:
-                        parseInt(e.target.value) === new Date().getFullYear() &&
-                        setupData.fiscalYearStartMonth >
-                          new Date().getMonth() + 1
-                          ? new Date().getMonth() + 1
+                        parseInt(e.target.value) === currentYear &&
+                        setupData.fiscalYearStartMonth > currentMonth
+                          ? currentMonth
                           : setupData.fiscalYearStartMonth,
                     })
                   }
@@ -596,7 +578,7 @@ const Setup: React.FC = () => {
                 >
                   {Array.from(
                     { length: 11 },
-                    (_, i) => new Date().getFullYear() - 10 + i
+                    (_, i) => currentYear - 10 + i
                   ).map((year) => (
                     <option key={year} value={year}>
                       {year}年
@@ -616,9 +598,8 @@ const Setup: React.FC = () => {
                   {Array.from(
                     {
                       length:
-                        setupData.fiscalYearStartYear ===
-                        new Date().getFullYear()
-                          ? new Date().getMonth() + 1
+                        setupData.fiscalYearStartYear === currentYear
+                          ? currentMonth
                           : 12,
                     },
                     (_, i) => i + 1
@@ -665,7 +646,7 @@ const Setup: React.FC = () => {
           </div>
         );
 
-      case 3: // 設定完了
+        case 3: // 設定完了
         return (
           <div className="space-y-6">
             <div className="text-center">
@@ -689,45 +670,48 @@ const Setup: React.FC = () => {
                 ※まだ会員登録は完了していません
               </p>
             </div>
-
+      
             <div className="bg-gray-50 rounded-lg p-4 space-y-3 text-sm">
               <div className="space-y-2">
-                <p>
-                  <span className="text-gray-600">ユーザー名:</span>{" "}
-                  {setupData.userName}
-                </p>
-                <p>
-                  <span className="text-gray-600">メールアドレス:</span>{" "}
-                  {setupData.email}
-                </p>
-                <p>
-                  <span className="text-gray-600">会社名:</span>{" "}
-                  {setupData.companyName}
-                </p>
-                <p>
-                  <span className="text-gray-600">電話番号:</span>{" "}
-                  {setupData.phoneNumber}
-                </p>
-                <p>
-                  <span className="text-gray-600">パスワード:</span> ●●●●●●●●
-                </p>
-                <p>
-                  <span className="text-gray-600">会社規模:</span>{" "}
-                  {setupData.companySize}
-                </p>
-                <p>
-                  <span className="text-gray-600">業界:</span>{" "}
-                  {setupData.industry}
-                </p>
-                <p>
-                  <span className="text-gray-600">財務知識:</span>{" "}
-                  {setupData.financialKnowledge}
-                </p>
-                <p>
-                  <span className="text-gray-600">事業年度開始:</span>{" "}
-                  {setupData.fiscalYearStartYear}年
-                  {setupData.fiscalYearStartMonth}月
-                </p>
+                <div>
+                  <span className="text-gray-600">ユーザー名:</span>
+                  <p className="break-words mt-1">{setupData.userName}</p>
+                </div>
+                <div>
+                  <span className="text-gray-600">メールアドレス:</span>
+                  <p className="break-all mt-1">{setupData.email}</p>
+                </div>
+                <div>
+                  <span className="text-gray-600">会社名:</span>
+                  <p className="break-words mt-1">{setupData.companyName}</p>
+                </div>
+                <div>
+                  <span className="text-gray-600">電話番号:</span>
+                  <p className="break-all mt-1">{setupData.phoneNumber}</p>
+                </div>
+                <div>
+                  <span className="text-gray-600">パスワード:</span>
+                  <p className="mt-1">●●●●●●●●</p>
+                </div>
+                <div>
+                  <span className="text-gray-600">会社規模:</span>
+                  <p className="break-words mt-1">{setupData.companySize}</p>
+                </div>
+                <div>
+                  <span className="text-gray-600">業界:</span>
+                  <p className="break-words mt-1">{setupData.industry}</p>
+                </div>
+                <div>
+                  <span className="text-gray-600">財務知識:</span>
+                  <p className="break-words mt-1">{setupData.financialKnowledge}</p>
+                </div>
+                <div>
+                  <span className="text-gray-600">事業年度開始:</span>
+                  <p className="break-words mt-1">
+                    {setupData.fiscalYearStartYear}年
+                    {setupData.fiscalYearStartMonth}月
+                  </p>
+                </div>
               </div>
             </div>
           </div>

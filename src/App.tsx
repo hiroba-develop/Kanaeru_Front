@@ -12,9 +12,13 @@ import YearlyBudgetActual from "./pages/YearlyBudgetActual";
 // import Support from "./pages/Support";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
+import PasswordResetRequest from "./pages/PasswordResetRequest";
+import PasswordReset from "./pages/PasswordReset";
 import Setup from "./pages/Setup";
+import Contact from "./pages/Contact";
 // import Ranking from "./pages/Ranking";
 import ClientManagement from "./pages/ClientManagement";
+import AdminUserManagement from "./pages/AdminUserManagement";
 import UserManagement from "./pages/UserManagement";
 import MandalaChart from "./pages/MandalaChart";
 import SwipeChoiceComponent from "./pages/SwipeChoiceComponent";
@@ -33,7 +37,6 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
           <p className="text-gray-600">読み込み中...</p>
-          <p className="text-sm text-blue-600 mt-2">(デモモード)</p>
         </div>
       </div>
     );
@@ -86,7 +89,7 @@ const AppContent: React.FC = () => {
     }
 
     // デモモード用のページタイトル設定
-    document.title = "Kanaeru - HOME";
+    document.title = "kanaeru";
   }, []);
 
   return (
@@ -94,8 +97,17 @@ const AppContent: React.FC = () => {
       {/* ログイン画面 */}
       <Route path="/login" element={<Login />} />
 
-      {/* 初期設定画面 */}
+      {/* パスワードリセットリクエスト画面 */}
+      <Route path="/password-reset-request" element={<PasswordResetRequest />} />
+      
+      {/* パスワード変更画面（トークンパラメータ付き） */}
+      <Route path="/password-reset/:token" element={<PasswordReset />} />
+
+      {/* 会員登録画面 */}
       <Route path="/setup" element={<Setup />} />
+
+      {/* お問い合わせ画面 */}
+      <Route path="/contact" element={<Contact />} />
 
       {/* 認証が必要なページ */}
       <Route
@@ -158,6 +170,16 @@ const AppContent: React.FC = () => {
           </ProtectedRoute>
         }
       /> */}
+      <Route
+        path="/adminUserManagement"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AdminUserManagement />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/clientManagement"
         element={

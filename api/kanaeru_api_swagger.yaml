@@ -25,6 +25,8 @@ tags:
     description: 中目標関連API
   - name: 小目標
     description: 小目標関連API
+  - name: お問い合わせ
+    description: お問い合わせ関連API
 
 paths:
   # =====================
@@ -63,6 +65,10 @@ paths:
                   userId:
                     type: string
                   name:
+                    type: string
+                  email:
+                    type: string
+                  userImageUrl:
                     type: string
                   role:
                     type: string
@@ -274,21 +280,14 @@ paths:
                   responseStatus:
                     type: integer
 
-  /api/client:
+  /api/get/users:
     get:
       tags:
-        - 認証
-      summary: クライアントユーザー取得
+        - ユーザー取得
+      summary: ユーザー取得
       description: |
-        管理者・プラットフォームオーナーがログイン時に使用
-        管理者IDが紐づけされているユーザーを取得する
+        ユーザー取得時使用
         responseStatusは成功時に1を返却、失敗時は0を返却
-      parameters:
-        - name: userId
-          in: query
-          required: true
-          schema:
-            type: string
       responses:
         '200':
           description: 取得成功
@@ -299,13 +298,94 @@ paths:
                 properties:
                   responseStatus:
                     type: integer
-                  userId:
-                    type: string
-                  name:
-                    type: string
-                  userType:
-                    type: string
+                  userListSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserListSchema'
+                  settingListSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SettingSchema'
 
+  /api/get/adminUsers:
+    get:
+      tags:
+        - 管理者ユーザー管理
+      summary: 管理者ユーザーまたはプラットフォームユーザー取得
+      description: |
+        管理者ユーザーまたはプラットフォームユーザー取得時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  adminUserListSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserListSchema'
+
+  /api/update/adminUsers:
+    put:
+      tags:
+        - 管理者ユーザー管理
+      summary: 管理者ユーザーまたはプラットフォームユーザー更新
+      description: |
+        ユーザー登録時使用(管理者・プラットフォームオーナー)
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userSchema:
+                  $ref: '#/components/schemas/UserSchema'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  userSchema:
+                    $ref: '#/components/schemas/UserSchema'
+
+  /api/delete/account:
+    delete:
+      tags:
+        - アカウント削除
+      summary: アカウント削除
+      description: |
+        アカウント削除時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
   # =====================
   # 設定変更関連API
   # =====================
@@ -428,6 +508,44 @@ paths:
                     type: integer
                   userSchema:
                     $ref: '#/components/schemas/UserSchema'
+
+  /api/setting/user/image:
+    post:
+      tags:
+        - 設定変更
+      summary: ユーザー画像登録
+      description: |
+        ユーザー画像登録時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+                type: object
+                required:
+                  - userId
+                  - imageFile
+                properties:
+                  userId:
+                    type: string
+                    description: ユーザーID（必須）
+                  imageFile:
+                    type: string
+                    format: binary
+                    description: 書影画像ファイル（jpg, png, gif, 最大5MB）
+      responses:
+        '200':
+          description: 登録成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  imageUrl:
+                    type: string  
 
   # =====================
   # 年次PL更新関連API
@@ -567,12 +685,18 @@ paths:
                 properties:
                   responseStatus:
                     type: integer
-                  adminCommentSchema:
-                    $ref: '#/components/schemas/AdminCommentSchema'
-                  quarterlyGoalSchema:
-                    type: object
-                  quarterlyGoalTaskSchema:
-                    type: object
+                  mainGoalSchema:
+                    $ref: '#/components/schemas/MainGoalSchema'
+                  largeGoalSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LargeGoalSchema'
+                  saleSchema:
+                    $ref: '#/components/schemas/SaleSchema'
+                  grossProfitSchema:
+                    $ref: '#/components/schemas/GrossProfitSchema'
+                  operatingProfitSchema:
+                    $ref: '#/components/schemas/OperatingProfitSchema'
 
   /api/yearlyBudgetActual:
     get:
@@ -580,7 +704,7 @@ paths:
         - 画面初期表示
       summary: 予実管理(年次)画面 初期表示
       description: |
-        ロードマップ設定画面初期表示時使用
+        予実管理(年次)画面初期表示時使用
         responseStatusは成功時に1を返却、失敗時は0を返却
       parameters:
         - name: userId
@@ -598,27 +722,26 @@ paths:
                 properties:
                   responseStatus:
                     type: integer
-                  saleId:
-                    type: string
-                  userId:
-                    type: string
-                  year:
-                    type: integer
-                  month:
-                    type: integer
-                  saleTarget:
-                    type: number
-                  profitId:
-                    type: string
-                  profitTarget:
-                    type: number
-                  netAssetId:
-                    type: string
-                  netAssetTarget:
-                    type: number
-                  netAssetResult:
-                    type: number
-
+                  saleSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SaleSchema'
+                  grossProfitSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GrossProfitSchema'
+                  operatingProfitSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OperatingProfitSchema'
+                  largePLLinkedItemSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LargePLLinkedItemSchema'
+                  middlePLLinkedItemSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MiddlePLLinkedItemSchema'
   /api/support:
     get:
       tags:
@@ -1892,6 +2015,42 @@ paths:
                   message:
                     type: string
 
+  # =====================
+  # お問い合わせ関連API
+  # =====================
+  /api/contacts/send:
+    post:
+      tags:
+        - お問い合わせ
+      summary: お問い合わせ送信
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                userName:
+                  type: string
+                email:
+                  type: string
+                content:
+                  type: string
+      responses:
+        '200':
+          description: 送信成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
 components:
   schemas:
     UserSchema:
@@ -1923,6 +2082,30 @@ components:
           type: integer
         webhookUrl:
           type: string
+    
+    UserListSchema:
+      type: object
+      properties:
+        userId:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        userImageUrl:
+          type: string
+        company:
+          type: string
+        role:
+          type: string
+        delFlg:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     SettingSchema:
       type: object
@@ -2001,24 +2184,6 @@ components:
         netAssetResult:
           type: number
 
-    AdminCommentSchema:
-      type: object
-      properties:
-        userId:
-          type: string
-        year:
-          type: integer
-        month:
-          type: integer
-        onepointComment:
-          type: string
-        goodpointComment:
-          type: string
-        cautionpointComment:
-          type: string
-        badpointComment:
-          type: string
-
     DmMessagesSchema:
       type: object
       properties:
@@ -2092,7 +2257,17 @@ components:
         updatedAt:
           type: string
           format: date-time
-
+    
+    MainGoalSchema:
+      type: object
+      properties:
+        main_goal_id:
+          type: string
+        chart_id:
+          type: string
+        goal_title:
+          type: string
+        
     LargeGoalSchema:
       type: object
       properties:
@@ -2124,3 +2299,29 @@ components:
               progress:
                 type: number
                 description: 中目標の進捗率をposition順番に取得
+
+    LargePLLinkedItemSchema:
+      type: object
+      properties:
+        large_goal_id:
+          type: string
+        goal_type:
+          type: integer
+          description: "1=定性, 2=売上, 3=粗利益, 4=営業利益"
+        target_year:
+          type: integer
+        target_amount:
+          type: number
+
+    MiddlePLLinkedItemSchema:
+      type: object
+      properties:
+        middle_goal_id:
+          type: string
+        goal_type:
+          type: integer
+          description: "1=定性, 2=売上, 3=粗利益, 4=営業利益"
+        target_year:
+          type: integer
+        target_amount:
+          type: number  

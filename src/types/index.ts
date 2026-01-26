@@ -255,6 +255,7 @@ export interface UserPerformanceData {
   password?: string;
   companyName: string; // businessName を companyName に統一
   role: UserRole;
+  avatar?: string;
   phoneNumber?: string;
   capital?: number;
   companySize?: CompanySize;

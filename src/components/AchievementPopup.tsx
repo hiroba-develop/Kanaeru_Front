@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import achieveBoy from "../assets/achieve_boy.png";
-import achieveGirl from "../assets/achieve_girl.png";
+import achieveBoy from "../assets/man.png";
+import achieveGirl from "../assets/girl.png";
+import kira from "../assets/kira.png";
+import kira2 from "../assets/kira2.png";
 
 interface AchievementPopupProps {
   isOpen: boolean;
@@ -44,45 +46,39 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
         className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn"
         onClick={onClose}
       >
-        {/* 紙吹雪 & 桜 */}
-        {showConfetti && (
-          <>
-            {/* 紙吹雪 */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-              {[...Array(50)].map((_, i) => (
-                <div
-                  key={i}
-                  className="absolute w-3 h-3 bg-gradient-to-br from-pink-400 to-rose-400 rounded-full"
+       {/* 紙吹雪（画像版） - 下から上へ、拡大縮小ループ */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+          {[...Array(100)].map((_, i) => {
+            const useKira2 = Math.random() > 0.5;
+            const startDelay = Math.random() * 10;
+            const duration = 4 + Math.random() * 4;
+            const pulseDelay = Math.random() * 2;
+            
+            return (
+              <div
+                key={i}
+                className="absolute"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  bottom: '-50px',
+                  animation: `rise ${duration}s linear ${startDelay}s infinite`,
+                }}
+              >
+                <img
+                  src={useKira2 ? kira2 : kira}
+                  alt=""
                   style={{
-                    left: `${Math.random() * 100}%`,
-                    top: `-10px`,
-                    animation: `fall ${2 + Math.random() * 2}s linear ${
-                      Math.random() * 2
-                    }s`,
-                    opacity: Math.random(),
+                    width: `${15 + Math.random() * 25}px`,
+                    height: 'auto',
+                    animation: `pulse 1.5s ease-in-out ${pulseDelay}s infinite`,
+                    opacity: 1,
+                    display: 'block',
                   }}
                 />
-              ))}
-            </div>
-
-            {/* 桜ふぶき */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
-              {petals.map((p) => (
-                <span
-                  key={p.id}
-                  className="sakura-petal"
-                  style={{
-                    left: `${p.left}%`,
-                    width: `${p.size}px`,
-                    height: `${p.size}px`,
-                    animationDuration: `${p.duration}s`,
-                    animationDelay: `${p.delay}s`,
-                  }}
-                />
-              ))}
-            </div>
-          </>
-        )}
+              </div>
+            );
+          })}
+        </div>
 
         {/* ポップアップコンテンツ */}
         <div
@@ -122,7 +118,7 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
                 }}
               >
                 <p 
-                  className="text-[#ff91a4] leading-none"
+                  className="text-[#1e1f1f] leading-none"
                   style={{
                     fontFamily: 'Inter',
                     fontWeight: 700,
@@ -132,7 +128,7 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
                   Congratulations!
                 </p>
                 <p 
-                  className="text-[#ff91a4]"
+                  className="text-[#1e1f1f]"
                   style={{
                     fontFamily: 'Inter',
                     fontWeight: 700,
@@ -150,11 +146,11 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
                 alt="girl"
                 className="absolute animate-banner-girl pointer-events-none z-[10]"
                 style={{ 
-                  bottom: 'clamp(2px, 1vw, 5px)',
-                  left: 'clamp(30px, 12vw, 100px)',
+                  bottom: 'clamp(-10px, -1vw, 0px)',
+                  left: 'clamp(35px, 15vw, 120px)',
                   width: 'clamp(100px, 22vw, 180px)',
                   height: 'auto',
-                  transform: "rotate(20deg)"
+                  //transform: "rotate(0deg)"
                 }}
               />
 
@@ -164,11 +160,11 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
                 alt="boy"
                 className="absolute animate-banner-boy pointer-events-none z-[10]"
                 style={{ 
-                  bottom: 'clamp(8px, 2vw, 16px)',
-                  right: 'clamp(30px, 12vw, 100px)',
+                  bottom: 'clamp(-30px, -5vw, 0px)',
+                  right: 'clamp(35px, 15vw, 120px)',
                   width: 'clamp(120px, 24vw, 200px)',
                   height: 'auto',
-                  transform: "rotate(-15deg)"
+                  //transform: "rotate(0deg)"
                 }}
               />
             </div>
@@ -235,21 +231,47 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
               pointer-events: none;
             }
 
-            @keyframes banner-boy {
+            @keyframes rise {
+              0% {
+                transform: translateY(0);
+                opacity: 0;
+              }
+              10% {
+                opacity: 1;
+              }
+              90% {
+                opacity: 1;
+              }
+              100% {
+                transform: translateY(-120vh);
+                opacity: 0;
+              }
+            }
+
+            @keyframes pulse {
               0%, 100% {
-                transform: translateY(0) rotate(-15deg);
+                transform: scale(0.7);
               }
               50% {
-                transform: translateY(-6px) rotate(-12deg);
+                transform: scale(1);
+              }
+            }
+
+            @keyframes banner-boy {
+              0%, 100% {
+                transform: translateY(0) rotate(0deg);
+              }
+              50% {
+                transform: translateY(-6px) rotate(0deg);
               }
             }
 
             @keyframes banner-girl {
               0%, 100% {
-                transform: translateY(0) rotate(20deg);
+                transform: translateY(0) rotate(0deg);
               }
               50% {
-                transform: translateY(4px) rotate(17deg);
+                transform: translateY(4px) rotate(0deg);
               }
             }
 

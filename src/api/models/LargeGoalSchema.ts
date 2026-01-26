@@ -16,6 +16,10 @@ export type LargeGoalSchema = {
     progress?: number;
     middle_goals_progress?: Array<{
         /**
+         * 1-8の範囲
+         */
+        position?: number;
+        /**
          * 中目標の進捗率をposition順番に取得
          */
         progress?: number;

@@ -2,16 +2,19 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { AdminCommentSchema } from '../models/AdminCommentSchema';
 import type { AvailabilitySchema } from '../models/AvailabilitySchema';
 import type { DmMessagesSchema } from '../models/DmMessagesSchema';
 import type { GrossProfitSchema } from '../models/GrossProfitSchema';
 import type { LargeGoalSchema } from '../models/LargeGoalSchema';
+import type { LargePLLinkedItemSchema } from '../models/LargePLLinkedItemSchema';
+import type { MainGoalSchema } from '../models/MainGoalSchema';
+import type { MiddlePLLinkedItemSchema } from '../models/MiddlePLLinkedItemSchema';
 import type { NetAssetsSchema } from '../models/NetAssetsSchema';
 import type { OperatingProfitSchema } from '../models/OperatingProfitSchema';
 import type { ReservationSchema } from '../models/ReservationSchema';
 import type { SaleSchema } from '../models/SaleSchema';
 import type { SettingSchema } from '../models/SettingSchema';
+import type { UserListSchema } from '../models/UserListSchema';
 import type { UserSchema } from '../models/UserSchema';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -37,6 +40,8 @@ export class Service {
         responseStatus?: number;
         userId?: string;
         name?: string;
+        email?: string;
+        userImageUrl?: string;
         role?: string;
         /**
          * JWT認証トークン
@@ -219,26 +224,82 @@ export class Service {
         });
     }
     /**
-     * クライアントユーザー取得
-     * 管理者・プラットフォームオーナーがログイン時に使用
-     * 管理者IDが紐づけされているユーザーを取得する
+     * ユーザー取得
+     * ユーザー取得時使用
      * responseStatusは成功時に1を返却、失敗時は0を返却
      *
-     * @param userId
      * @returns any 取得成功
      * @throws ApiError
      */
-    public static getApiClient(
-        userId: string,
-    ): CancelablePromise<{
+    public static getApiGetUsers(): CancelablePromise<{
         responseStatus?: number;
-        userId?: string;
-        name?: string;
-        userType?: string;
+        userListSchema?: Array<UserListSchema>;
+        settingListSchema?: Array<SettingSchema>;
     }> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/client',
+            url: '/api/get/users',
+        });
+    }
+    /**
+     * 管理者ユーザーまたはプラットフォームユーザー取得
+     * 管理者ユーザーまたはプラットフォームユーザー取得時使用
+     * responseStatusは成功時に1を返却、失敗時は0を返却
+     *
+     * @returns any 取得成功
+     * @throws ApiError
+     */
+    public static getApiGetAdminUsers(): CancelablePromise<{
+        responseStatus?: number;
+        adminUserListSchema?: Array<UserListSchema>;
+    }> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/get/adminUsers',
+        });
+    }
+    /**
+     * 管理者ユーザーまたはプラットフォームユーザー更新
+     * ユーザー登録時使用(管理者・プラットフォームオーナー)
+     * responseStatusは成功時に1を返却、失敗時は0を返却
+     *
+     * @param requestBody
+     * @returns any 更新成功
+     * @throws ApiError
+     */
+    public static putApiUpdateAdminUsers(
+        requestBody: {
+            userSchema?: UserSchema;
+        },
+    ): CancelablePromise<{
+        responseStatus?: number;
+        userSchema?: UserSchema;
+    }> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/update/adminUsers',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * アカウント削除
+     * アカウント削除時使用
+     * responseStatusは成功時に1を返却、失敗時は0を返却
+     *
+     * @param userId
+     * @returns any 削除成功
+     * @throws ApiError
+     */
+    public static deleteApiDeleteAccount(
+        userId: string,
+    ): CancelablePromise<{
+        responseStatus?: number;
+        message?: string;
+    }> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/delete/account',
             query: {
                 'userId': userId,
             },
@@ -342,6 +403,37 @@ export class Service {
         });
     }
     /**
+     * ユーザー画像登録
+     * ユーザー画像登録時使用
+     * responseStatusは成功時に1を返却、失敗時は0を返却
+     *
+     * @param formData
+     * @returns any 登録成功
+     * @throws ApiError
+     */
+    public static postApiSettingUserImage(
+        formData: {
+            /**
+             * ユーザーID（必須）
+             */
+            userId: string;
+            /**
+             * 書影画像ファイル（jpg, png, gif, 最大5MB）
+             */
+            imageFile: Blob;
+        },
+    ): CancelablePromise<{
+        responseStatus?: number;
+        imageUrl?: string;
+    }> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/setting/user/image',
+            formData: formData,
+            mediaType: 'multipart/form-data',
+        });
+    }
+    /**
      * 売上更新
      * 売上更新時使用
      * responseStatusは成功時に1を返却、失敗時は0を返却
@@ -442,9 +534,11 @@ export class Service {
         userId: string,
     ): CancelablePromise<{
         responseStatus?: number;
-        adminCommentSchema?: AdminCommentSchema;
-        quarterlyGoalSchema?: Record<string, any>;
-        quarterlyGoalTaskSchema?: Record<string, any>;
+        mainGoalSchema?: MainGoalSchema;
+        largeGoalSchema?: Array<LargeGoalSchema>;
+        saleSchema?: SaleSchema;
+        grossProfitSchema?: GrossProfitSchema;
+        operatingProfitSchema?: OperatingProfitSchema;
     }> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -456,7 +550,7 @@ export class Service {
     }
     /**
      * 予実管理(年次)画面 初期表示
-     * ロードマップ設定画面初期表示時使用
+     * 予実管理(年次)画面初期表示時使用
      * responseStatusは成功時に1を返却、失敗時は0を返却
      *
      * @param userId
@@ -467,16 +561,11 @@ export class Service {
         userId: string,
     ): CancelablePromise<{
         responseStatus?: number;
-        saleId?: string;
-        userId?: string;
-        year?: number;
-        month?: number;
-        saleTarget?: number;
-        profitId?: string;
-        profitTarget?: number;
-        netAssetId?: string;
-        netAssetTarget?: number;
-        netAssetResult?: number;
+        saleSchema?: Array<SaleSchema>;
+        grossProfitSchema?: Array<GrossProfitSchema>;
+        operatingProfitSchema?: Array<OperatingProfitSchema>;
+        largePLLinkedItemSchema?: Array<LargePLLinkedItemSchema>;
+        middlePLLinkedItemSchema?: Array<MiddlePLLinkedItemSchema>;
     }> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -1457,6 +1546,30 @@ export class Service {
             path: {
                 'small_goal_id': smallGoalId,
             },
+        });
+    }
+    /**
+     * お問い合わせ送信
+     * @param requestBody
+     * @returns any 送信成功
+     * @throws ApiError
+     */
+    public static postApiContactsSend(
+        requestBody: {
+            title?: string;
+            userName?: string;
+            email?: string;
+            content?: string;
+        },
+    ): CancelablePromise<{
+        responseStatus?: number;
+        message?: string;
+    }> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/contacts/send',
+            body: requestBody,
+            mediaType: 'application/json',
         });
     }
 }
