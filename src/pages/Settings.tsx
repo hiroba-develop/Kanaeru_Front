@@ -780,7 +780,8 @@ const Settings: React.FC = () => {
 
             {/* ★★★ formタグで囲む（autocomplete="off"を追加） ★★★ */}
             <form autoComplete="off" onSubmit={(e) => e.preventDefault()}>
-              <div className="space-y-4">
+            <div className="space-y-4">
+              {user?.role === "0" && (
                 <div>
                   <label className="block text-sm text-text/70 mb-2 ">
                     会社名
@@ -805,6 +806,7 @@ const Settings: React.FC = () => {
                     {setupData.companyName?.length || 0}/50文字
                   </p>
                 </div>
+              )}
 
                 <div>
                   <label className="block text-sm text-text/70 mb-1">
