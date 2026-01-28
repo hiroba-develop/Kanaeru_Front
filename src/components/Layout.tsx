@@ -97,6 +97,36 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     console.log('condition result:', userRole !== null && ["1", "2"].includes(userRole) && managedUsers.length > 0);
   }, [userRole, managedUsers, selectedUser]);
 
+  // Layout.tsx の先頭付近、useEffect などの後に追加
+  const handleLogout = async () => {
+    if (window.confirm("ログアウトしますか？")) {
+      try {
+        // APIでログアウト試行（エラーでも続行）
+        await logout();
+      } catch (error) {
+        console.error("ログアウトAPIエラー:", error);
+        // エラーでも続行してクリア処理を実行
+      } finally {
+        // 確実にクリア（APIが失敗してもこれは実行される）
+        localStorage.clear();
+        sessionStorage.clear();
+        
+        // すべてのCookieを削除
+        document.cookie.split(";").forEach((c) => {
+          const name = c.split("=")[0].trim();
+          // 複数のパターンで削除を試行
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=.kanaeru.etomoji.co.jp`;
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=.etomoji.co.jp`;
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=staging.kanaeru.etomoji.co.jp`;
+        });
+        
+        // ログインページへ強制移動
+        window.location.href = '/login';
+      }
+    }
+  };
+
   const handleAvatarClick = () => {
     if (!isUploadingAvatar) {
       avatarInputRef.current?.click();
@@ -550,11 +580,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
               <div className="flex items-center lg:mr-8">
                 <button
-                  onClick={async () => {
-                    if (window.confirm("ログアウトしますか？")) {
-                      await logout();
-                    }
-                  }}
+                  onClick={handleLogout}
                   className="hover:opacity-80 transition-opacity text-xs sm:text-sm text-gray-800 whitespace-nowrap"
                   style={{
                     marginRight: '55px'

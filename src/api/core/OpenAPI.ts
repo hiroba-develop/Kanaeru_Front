@@ -22,7 +22,7 @@ export type OpenAPIConfig = {
 export const OpenAPI: OpenAPIConfig = {
     BASE: import.meta.env.VITE_API_BASE_URL,
     VERSION: '1.0.0',
-    WITH_CREDENTIALS: false,
+    WITH_CREDENTIALS: true,
     CREDENTIALS: 'include',
     TOKEN: undefined,
     USERNAME: undefined,
@@ -30,3 +30,21 @@ export const OpenAPI: OpenAPIConfig = {
     HEADERS: undefined,
     ENCODE_PATH: undefined,
 };
+
+// デバッグ用：TOKEN が変更されたら警告
+let _token = OpenAPI.TOKEN;
+Object.defineProperty(OpenAPI, 'TOKEN', {
+    get() {
+        return _token;
+    },
+    set(value) {
+        console.error('🚨 OpenAPI.TOKEN が設定されました！', value);
+        console.trace(); // どこから呼ばれたか表示
+        _token = value;
+    }
+});
+
+console.log('=== OpenAPI 初期設定 ===');
+console.log('BASE:', OpenAPI.BASE);
+console.log('TOKEN:', OpenAPI.TOKEN);
+console.log('WITH_CREDENTIALS:', OpenAPI.WITH_CREDENTIALS);

@@ -477,9 +477,6 @@ const Settings: React.FC = () => {
         return;
       }
 
-      // OpenAPIのTOKENを設定（API呼び出し時にAuthorizationヘッダーに自動的に追加される）
-      OpenAPI.TOKEN = token;
-
       // パスワードをハッシュ化
       const currentPasswordHash = sha256(passwordData.currentPassword);
       const newPasswordHash = sha256(passwordData.newPassword);
