@@ -20,6 +20,7 @@ import {
   loadPlPlan,
   loadPlActual,
   savePlActual,
+  formatAmountToText,
 } from "../utils/mandalaIntegration";
 import type { SaleSchema } from "../api/models/SaleSchema";
 import type { GrossProfitSchema } from "../api/models/GrossProfitSchema";
@@ -682,50 +683,56 @@ const YearlyBudgetActual: React.FC = () => {
               if (edits.revenueTarget !== undefined) {
                 console.log(`売上目標の変更を検出: ${year}年, ${edits.revenueTarget}円`);
                 
-                // 大目標を検索
-                const largeGoal = activeChart.large_goals?.find(
+                // 同じ年度・goal_typeの大目標をすべて取得
+                const largeGoals = activeChart.large_goals?.filter(
                   (lg: any) => lg.goal_type === 2 && lg.target_year === year
-                );
+                ) || [];
                 
-                // ★ 追加: 中目標も検索
-                const middleGoal = allMiddleGoals.find(
+                // 同じ年度・goal_typeの中目標をすべて取得
+                const middleGoals = allMiddleGoals.filter(
                   (mg: any) => mg.goal_type === 2 && mg.target_year === year
                 );
                 
+                console.log(`売上目標更新対象: 大目標${largeGoals.length}件, 中目標${middleGoals.length}件`);
+                
                 let updated = false;
                 
-                // 大目標の更新
-                if (largeGoal?.large_goal_id) {
-                  let updatedGoalTitle = largeGoal.goal_title || '';
-                  const newAmountInManEn = Math.round(edits.revenueTarget / 10000);
-                  updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)万円/, `${newAmountInManEn.toLocaleString()}万円`);
-                  
-                  console.log(`売上の大目標を更新: ${year}年, large_goal_id: ${largeGoal.large_goal_id}`);
-                  const updateResponse = await withErrorHandling(() =>
-                    Service.putApiLargeGoalsUpdate(largeGoal.large_goal_id!, {
-                      target_amount: edits.revenueTarget,
-                      goal_title: updatedGoalTitle,
-                    })
-                  );
-                  console.log('売上の大目標更新レスポンス:', updateResponse);
-                  updated = true;
+                // すべての大目標を更新
+                for (const largeGoal of largeGoals) {
+                  if (largeGoal?.large_goal_id) {
+                    let updatedGoalTitle = largeGoal.goal_title || '';
+                    const newAmountText = formatAmountToText(edits.revenueTarget);
+                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
+                    
+                    console.log(`売上の大目標を更新: ${year}年, large_goal_id: ${largeGoal.large_goal_id}, title: "${largeGoal.goal_title}"`);
+                    const updateResponse = await withErrorHandling(() =>
+                      Service.putApiLargeGoalsUpdate(largeGoal.large_goal_id!, {
+                        target_amount: edits.revenueTarget,
+                        goal_title: updatedGoalTitle,
+                      })
+                    );
+                    console.log('売上の大目標更新レスポンス:', updateResponse);
+                    updated = true;
+                  }
                 }
                 
-                // ★ 追加: 中目標の更新
-                if (middleGoal?.middle_goal_id) {
-                  let updatedGoalTitle = middleGoal.goal_title || '';
-                  const newAmountInManEn = Math.round(edits.revenueTarget / 10000);
-                  updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)万円/, `${newAmountInManEn.toLocaleString()}万円`);
-                  
-                  console.log(`売上の中目標を更新: ${year}年, middle_goal_id: ${middleGoal.middle_goal_id}`);
-                  const updateResponse = await withErrorHandling(() =>
-                    Service.putApiMiddleGoalsUpdate(middleGoal.middle_goal_id!, {
-                      target_amount: edits.revenueTarget,
-                      goal_title: updatedGoalTitle,
-                    })
-                  );
-                  console.log('売上の中目標更新レスポンス:', updateResponse);
-                  updated = true;
+                // すべての中目標を更新
+                for (const middleGoal of middleGoals) {
+                  if (middleGoal?.middle_goal_id) {
+                    let updatedGoalTitle = middleGoal.goal_title || '';
+                    const newAmountText = formatAmountToText(edits.revenueTarget);
+                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
+                    
+                    console.log(`売上の中目標を更新: ${year}年, middle_goal_id: ${middleGoal.middle_goal_id}, title: "${middleGoal.goal_title}"`);
+                    const updateResponse = await withErrorHandling(() =>
+                      Service.putApiMiddleGoalsUpdate(middleGoal.middle_goal_id!, {
+                        target_amount: edits.revenueTarget,
+                        goal_title: updatedGoalTitle,
+                      })
+                    );
+                    console.log('売上の中目標更新レスポンス:', updateResponse);
+                    updated = true;
+                  }
                 }
                 
                 if (updated) {
@@ -739,50 +746,56 @@ const YearlyBudgetActual: React.FC = () => {
               if (edits.grossProfitTarget !== undefined) {
                 console.log(`粗利益目標の変更を検出: ${year}年, ${edits.grossProfitTarget}円`);
                 
-                // 大目標を検索
-                const largeGoal = activeChart.large_goals?.find(
+                // 同じ年度・goal_typeの大目標をすべて取得
+                const largeGoals = activeChart.large_goals?.filter(
                   (lg: any) => lg.goal_type === 3 && lg.target_year === year
-                );
+                ) || [];
                 
-                // ★ 追加: 中目標も検索
-                const middleGoal = allMiddleGoals.find(
+                // 同じ年度・goal_typeの中目標をすべて取得
+                const middleGoals = allMiddleGoals.filter(
                   (mg: any) => mg.goal_type === 3 && mg.target_year === year
                 );
                 
+                console.log(`粗利益目標更新対象: 大目標${largeGoals.length}件, 中目標${middleGoals.length}件`);
+                
                 let updated = false;
                 
-                // 大目標の更新
-                if (largeGoal?.large_goal_id) {
-                  let updatedGoalTitle = largeGoal.goal_title || '';
-                  const newAmountInManEn = Math.round(edits.grossProfitTarget / 10000);
-                  updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)万円/, `${newAmountInManEn.toLocaleString()}万円`);
-                  
-                  console.log(`粗利益の大目標を更新: ${year}年, large_goal_id: ${largeGoal.large_goal_id}`);
-                  const updateResponse = await withErrorHandling(() =>
-                    Service.putApiLargeGoalsUpdate(largeGoal.large_goal_id!, {
-                      target_amount: edits.grossProfitTarget,
-                      goal_title: updatedGoalTitle,
-                    })
-                  );
-                  console.log('粗利益の大目標更新レスポンス:', updateResponse);
-                  updated = true;
+                // すべての大目標を更新
+                for (const largeGoal of largeGoals) {
+                  if (largeGoal?.large_goal_id) {
+                    let updatedGoalTitle = largeGoal.goal_title || '';
+                    const newAmountText = formatAmountToText(edits.grossProfitTarget);
+                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
+                    
+                    console.log(`粗利益の大目標を更新: ${year}年, large_goal_id: ${largeGoal.large_goal_id}, title: "${largeGoal.goal_title}"`);
+                    const updateResponse = await withErrorHandling(() =>
+                      Service.putApiLargeGoalsUpdate(largeGoal.large_goal_id!, {
+                        target_amount: edits.grossProfitTarget,
+                        goal_title: updatedGoalTitle,
+                      })
+                    );
+                    console.log('粗利益の大目標更新レスポンス:', updateResponse);
+                    updated = true;
+                  }
                 }
                 
-                // ★ 追加: 中目標の更新
-                if (middleGoal?.middle_goal_id) {
-                  let updatedGoalTitle = middleGoal.goal_title || '';
-                  const newAmountInManEn = Math.round(edits.grossProfitTarget / 10000);
-                  updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)万円/, `${newAmountInManEn.toLocaleString()}万円`);
-                  
-                  console.log(`粗利益の中目標を更新: ${year}年, middle_goal_id: ${middleGoal.middle_goal_id}`);
-                  const updateResponse = await withErrorHandling(() =>
-                    Service.putApiMiddleGoalsUpdate(middleGoal.middle_goal_id!, {
-                      target_amount: edits.grossProfitTarget,
-                      goal_title: updatedGoalTitle,
-                    })
-                  );
-                  console.log('粗利益の中目標更新レスポンス:', updateResponse);
-                  updated = true;
+                // すべての中目標を更新
+                for (const middleGoal of middleGoals) {
+                  if (middleGoal?.middle_goal_id) {
+                    let updatedGoalTitle = middleGoal.goal_title || '';
+                    const newAmountText = formatAmountToText(edits.grossProfitTarget);
+                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
+                    
+                    console.log(`粗利益の中目標を更新: ${year}年, middle_goal_id: ${middleGoal.middle_goal_id}, title: "${middleGoal.goal_title}"`);
+                    const updateResponse = await withErrorHandling(() =>
+                      Service.putApiMiddleGoalsUpdate(middleGoal.middle_goal_id!, {
+                        target_amount: edits.grossProfitTarget,
+                        goal_title: updatedGoalTitle,
+                      })
+                    );
+                    console.log('粗利益の中目標更新レスポンス:', updateResponse);
+                    updated = true;
+                  }
                 }
                 
                 if (updated) {
@@ -796,50 +809,56 @@ const YearlyBudgetActual: React.FC = () => {
               if (edits.operatingProfitTarget !== undefined) {
                 console.log(`営業利益目標の変更を検出: ${year}年, ${edits.operatingProfitTarget}円`);
                 
-                // 大目標を検索
-                const largeGoal = activeChart.large_goals?.find(
+                // 同じ年度・goal_typeの大目標をすべて取得
+                const largeGoals = activeChart.large_goals?.filter(
                   (lg: any) => lg.goal_type === 4 && lg.target_year === year
-                );
+                ) || [];
                 
-                // ★ 追加: 中目標も検索
-                const middleGoal = allMiddleGoals.find(
+                // 同じ年度・goal_typeの中目標をすべて取得
+                const middleGoals = allMiddleGoals.filter(
                   (mg: any) => mg.goal_type === 4 && mg.target_year === year
                 );
                 
+                console.log(`営業利益目標更新対象: 大目標${largeGoals.length}件, 中目標${middleGoals.length}件`);
+                
                 let updated = false;
                 
-                // 大目標の更新
-                if (largeGoal?.large_goal_id) {
-                  let updatedGoalTitle = largeGoal.goal_title || '';
-                  const newAmountInManEn = Math.round(edits.operatingProfitTarget / 10000);
-                  updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)万円/, `${newAmountInManEn.toLocaleString()}万円`);
-                  
-                  console.log(`営業利益の大目標を更新: ${year}年, large_goal_id: ${largeGoal.large_goal_id}`);
-                  const updateResponse = await withErrorHandling(() =>
-                    Service.putApiLargeGoalsUpdate(largeGoal.large_goal_id!, {
-                      target_amount: edits.operatingProfitTarget,
-                      goal_title: updatedGoalTitle,
-                    })
-                  );
-                  console.log('営業利益の大目標更新レスポンス:', updateResponse);
-                  updated = true;
+                // すべての大目標を更新
+                for (const largeGoal of largeGoals) {
+                  if (largeGoal?.large_goal_id) {
+                    let updatedGoalTitle = largeGoal.goal_title || '';
+                    const newAmountText = formatAmountToText(edits.operatingProfitTarget);
+                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
+                    
+                    console.log(`営業利益の大目標を更新: ${year}年, large_goal_id: ${largeGoal.large_goal_id}, title: "${largeGoal.goal_title}"`);
+                    const updateResponse = await withErrorHandling(() =>
+                      Service.putApiLargeGoalsUpdate(largeGoal.large_goal_id!, {
+                        target_amount: edits.operatingProfitTarget,
+                        goal_title: updatedGoalTitle,
+                      })
+                    );
+                    console.log('営業利益の大目標更新レスポンス:', updateResponse);
+                    updated = true;
+                  }
                 }
                 
-                // ★ 追加: 中目標の更新
-                if (middleGoal?.middle_goal_id) {
-                  let updatedGoalTitle = middleGoal.goal_title || '';
-                  const newAmountInManEn = Math.round(edits.operatingProfitTarget / 10000);
-                  updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)万円/, `${newAmountInManEn.toLocaleString()}万円`);
-                  
-                  console.log(`営業利益の中目標を更新: ${year}年, middle_goal_id: ${middleGoal.middle_goal_id}`);
-                  const updateResponse = await withErrorHandling(() =>
-                    Service.putApiMiddleGoalsUpdate(middleGoal.middle_goal_id!, {
-                      target_amount: edits.operatingProfitTarget,
-                      goal_title: updatedGoalTitle,
-                    })
-                  );
-                  console.log('営業利益の中目標更新レスポンス:', updateResponse);
-                  updated = true;
+                // すべての中目標を更新
+                for (const middleGoal of middleGoals) {
+                  if (middleGoal?.middle_goal_id) {
+                    let updatedGoalTitle = middleGoal.goal_title || '';
+                    const newAmountText = formatAmountToText(edits.operatingProfitTarget);
+                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
+                    
+                    console.log(`営業利益の中目標を更新: ${year}年, middle_goal_id: ${middleGoal.middle_goal_id}, title: "${middleGoal.goal_title}"`);
+                    const updateResponse = await withErrorHandling(() =>
+                      Service.putApiMiddleGoalsUpdate(middleGoal.middle_goal_id!, {
+                        target_amount: edits.operatingProfitTarget,
+                        goal_title: updatedGoalTitle,
+                      })
+                    );
+                    console.log('営業利益の中目標更新レスポンス:', updateResponse);
+                    updated = true;
+                  }
                 }
                 
                 if (updated) {
