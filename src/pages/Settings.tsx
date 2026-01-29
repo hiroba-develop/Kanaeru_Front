@@ -541,30 +541,24 @@ const Settings: React.FC = () => {
   
     try {
       setLoading(true);
-      console.log('=== アカウント削除処理開始 ===');
-      console.log('削除対象ユーザーID:', user.id);
   
       // 退会API呼び出し
       const response = await withErrorHandling(() =>
         Service.deleteApiDeleteAccount(user.id)
       );
   
-      console.log('deleteApiDeleteAccount レスポンス:', response);
   
       if (response.responseStatus === 1) {
         alert("退会処理が完了しました。ご利用ありがとうございました。");
         
-        console.log('Cookieを削除します');
         // すべての関連Cookieを削除
         const cookies = ['authToken', 'userId', 'role', 'selectedUserId', 'userName', 'userImageUrl', 'userEmail'];
         cookies.forEach(cookieName => {
           document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
         });
         
-        console.log('ログイン画面にリダイレクトします');
         // ログイン画面にリダイレクト
         window.location.href = "/login";
-        console.log('=== アカウント削除処理完了 ===');
       } else {
         throw new Error("退会処理に失敗しました");
       }

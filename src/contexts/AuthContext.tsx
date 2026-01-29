@@ -477,8 +477,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const switchUser = (userId: string) => {
     const userToSwitch = managedUsers.find((u) => u.id === userId);
     if (userToSwitch) {
-      setSelectedUser(userToSwitch);
-      setCookie("selectedUserId", userId);
+      // まずローディング状態にする
+      setIsLoading(true);
+      
+      // 選択ユーザーとセットアップ情報をクリア
+      setSelectedUser(null);
+      setUserSetup(null);
+      
+      // 次のティックで新しいユーザーを設定
+      setTimeout(() => {
+        setSelectedUser(userToSwitch);
+        setCookie("selectedUserId", userId);
+        setIsLoading(false);
+      }, 0);
     }
   };
 

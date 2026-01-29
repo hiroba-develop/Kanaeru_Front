@@ -156,16 +156,9 @@ const GoalInputModal: React.FC<GoalInputModalProps> = ({
   };
 
   const handleSubmit = () => {
-    // ★ デバッグログ追加
-    console.log('=== handleSubmit in GoalInputModal ===');
-    console.log('selectedType:', selectedType);
-    console.log('goalText:', goalText);
-    console.log('yearNumber:', yearNumber);
-    console.log('amount:', amount);
     
     if (selectedType === 'qualitative') {
       if (goalText.trim()) {
-        console.log('Submitting qualitative goal:', goalText.trim());
         onSubmit(goalText.trim(), selectedType);
         onClose();
       }
@@ -178,12 +171,6 @@ const GoalInputModal: React.FC<GoalInputModalProps> = ({
         
         const amountInManYen = parseInt(amount);
         const targetYearNum = parseInt(yearNumber);
-        
-        console.log('Submitting PL goal:', {
-          selectedType,
-          amountInManYen,
-          targetYearNum
-        });
         
         // 表示用のフォーマット済み文字列を作成
         const formattedAmount = formatAmount(amount);

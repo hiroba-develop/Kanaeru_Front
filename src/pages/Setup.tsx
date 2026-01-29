@@ -264,8 +264,6 @@ const Setup: React.FC = () => {
         },
       };
   
-      console.log("送信データ（パスワードはハッシュ化済み）:", requestBody);
-  
       // APIを呼び出してユーザー登録
       const response = await Service.postApiAuthRegistrationUser(requestBody);
   

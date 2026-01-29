@@ -509,7 +509,6 @@ export const formatAmountToText = (amount: number): string => {
  * - ヘッダーの「目標を更新する」ボタンから呼ばれる
  */
 export const onMandalaGoalUpdate = () => {
-  console.log("マンダラ目標を更新しています...");
   
   const plPlan = getPlPlanFromMandala();
 
@@ -524,8 +523,6 @@ export const onMandalaGoalUpdate = () => {
 
   // ★ マンダラチャートに保存完了を通知（背景色をクリアするため）
   window.dispatchEvent(new Event('mandalaGoalUpdated'));
-
-  console.log("マンダラ目標の更新が完了しました");
 
   return plPlan;
 };
@@ -648,12 +645,6 @@ export const onYearlyActualUpdate = (
         const rate = achievements[cellMetric]!;
         const isAchieved = rate >= ACHIEVED_THRESHOLD;
         
-        console.log(`✅ Updating "${minorCell.title}" (${minorCell.id}):`, {
-          isChecked: isAchieved,
-          achievement: Math.round(Math.min(rate, 1) * 100),
-          status: isAchieved ? 'achieved' : rate > 0 ? 'in_progress' : 'not_started'
-        });
-      
         minorCell.isChecked = isAchieved;
         minorCell.achievement = Math.round(Math.min(rate, 1) * 100);
         minorCell.status = isAchieved

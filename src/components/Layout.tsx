@@ -87,16 +87,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   }, [user?.avatar]);
 
-  // デバッグ用のuseEffectを追加
-  useEffect(() => {
-    console.log('=== Debug Info ===');
-    console.log('userRole:', userRole, 'type:', typeof userRole);
-    console.log('managedUsers:', managedUsers);
-    console.log('managedUsers.length:', managedUsers.length);
-    console.log('selectedUser:', selectedUser);
-    console.log('condition result:', userRole !== null && ["1", "2"].includes(userRole) && managedUsers.length > 0);
-  }, [userRole, managedUsers, selectedUser]);
-
   // Layout.tsx の先頭付近、useEffect などの後に追加
   const handleLogout = async () => {
     if (window.confirm("ログアウトしますか？")) {
@@ -367,11 +357,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div 
               className="flex items-center justify-center h-16 xl:h-20"
             >
-              <img
-                src={headerIcon}
-                alt="Kanaeru"
-                className="h-7 xl:h-8 w-auto object-contain"
-              />
+              {/* ロゴエリア - 中央揃え + ホームへのリンク */}
+              <Link
+                to="/"
+                className="flex items-center justify-center h-16 xl:h-20 hover:opacity-80 transition-opacity"
+              >
+                <img
+                  src={headerIcon}
+                  alt="Kanaeru"
+                  className="h-7 xl:h-8 w-auto object-contain"
+                />
+              </Link>
             </div>
 
             {/* userInfo または userSwitcher - role:1,2の場合はプルダウンのみ */}
@@ -570,11 +566,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <Menu className="h-5 w-5 sm:h-6 sm:w-6" />
                 </button>
                 <div className="flex items-center ml-2 lg:ml-0">
-                  <img
-                    src={headerIcon}
-                    alt="Kanaeru"
-                    className="h-6 sm:h-8 w-auto lg:hidden"
-                  />
+                  <Link to="/" className="hover:opacity-80 transition-opacity">
+                    <img
+                      src={headerIcon}
+                      alt="Kanaeru"
+                      className="h-6 sm:h-8 w-auto lg:hidden"
+                    />
+                  </Link>
                 </div>
               </div>
 
@@ -627,11 +625,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             >
               <div className="flex items-center justify-between px-3 py-2 sm:p-4 h-14 sm:h-16">
                 <div className="flex-1 flex justify-center">
-                  <img
-                    src={headerIcon}
-                    alt="Kanaeru"
-                    className="h-6 sm:h-8 w-auto object-contain"
-                  />
+                  <Link 
+                    to="/" 
+                    className="hover:opacity-80 transition-opacity"
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <img
+                      src={headerIcon}
+                      alt="Kanaeru"
+                      className="h-6 sm:h-8 w-auto object-contain"
+                    />
+                  </Link>
                 </div>
                 <button
                   type="button"

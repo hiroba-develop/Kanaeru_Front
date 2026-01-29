@@ -43,8 +43,3 @@ Object.defineProperty(OpenAPI, 'TOKEN', {
         _token = value;
     }
 });
-
-console.log('=== OpenAPI 初期設定 ===');
-console.log('BASE:', OpenAPI.BASE);
-console.log('TOKEN:', OpenAPI.TOKEN);
-console.log('WITH_CREDENTIALS:', OpenAPI.WITH_CREDENTIALS);

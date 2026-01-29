@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import { Service } from "../api/services/Service";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -120,18 +119,17 @@ const Contact: React.FC = () => {
       <div className="max-w-2xl mx-auto">
         {/* ヘッダー */}
         <div className="text-center mb-6 sm:mb-8">
-          <Link to="/" className="inline-block">
-            <div className="mx-auto h-24 w-24 sm:h-40 sm:w-40 flex items-center justify-center mb-6">
-              <div
-                className="w-full h-full bg-contain bg-no-repeat bg-center"
-                style={{
-                  backgroundImage: "url(src/assets/header_icon.png)",
-                }}
-                role="img"
-                aria-label="kanaeru"
-              />
-            </div>
-          </Link>
+          <div className="mx-auto h-24 w-24 sm:h-40 sm:w-40 flex items-center justify-center mb-6">
+            <div
+              className="w-full h-full bg-contain bg-no-repeat bg-center"
+              style={{
+                backgroundImage: "url(src/assets/header_icon.png)",
+              }}
+              role="img"
+              aria-label="kanaeru"
+            />
+          </div>
+          
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
             お問い合わせ
           </h1>
@@ -269,12 +267,13 @@ const Contact: React.FC = () => {
 
             {/* 送信ボタン */}
             <div className="flex flex-col sm:flex-row justify-between gap-3 sm:gap-0">
-              <Link
-                to="/"
+              <button
+                type="button"
+                onClick={() => window.close()}
                 className="px-4 sm:px-6 py-2 border border-gray-300 rounded-full text-gray-700 hover:bg-gray-50 text-sm sm:text-base text-center"
               >
-                戻る
-              </Link>
+                閉じる
+              </button>
               <button
                 type="submit"
                 disabled={isLoading}

@@ -377,6 +377,77 @@ const MandalaChart: React.FC = () => {
     onCancel: () => {}
   });
 
+  // ユーザー切り替え時に状態をリセット
+  useEffect(() => {
+    // viewLevelとナビゲーション状態をリセット
+    setViewLevel("large");
+    setSelectedLargeCellId(null);
+    setSelectedMiddleCellId(null);
+    setHoveredCellId(null);
+    
+    // 中心目標をリセット
+    setCenterGoal("");
+    setCenterStartDate("");
+    currentChartIdRef.current = null;
+    
+    // 大目標を初期化
+    setLargeCells(Array.from({ length: 8 }, (_, i) => ({
+      id: `large_${i + 1}`,
+      title: "",
+      achievement: 0,
+      status: "not_started" as const,
+      largeGoalId: undefined,
+    })));
+    
+    // 中目標を初期化
+    const newMiddleCharts: { [key: string]: MandalaSubChart } = {};
+    Array.from({ length: 8 }, (_, i) => {
+      const cellId = `large_${i + 1}`;
+      newMiddleCharts[cellId] = {
+        centerId: cellId,
+        centerTitle: "",
+        cells: Array.from({ length: 8 }, (_, j) => ({
+          id: `${cellId}_middle_${j + 1}`,
+          title: "",
+          achievement: 0,
+          status: "not_started" as const,
+        })),
+      };
+    });
+    setMiddleCharts(newMiddleCharts);
+    
+    // 小目標を初期化
+    const newSmallCharts: { [key: string]: MandalaSubChart } = {};
+    Object.values(newMiddleCharts).forEach((middleChart) => {
+      middleChart.cells.forEach((cell) => {
+        newSmallCharts[cell.id] = {
+          centerId: cell.id,
+          centerTitle: "",
+          cells: Array.from({ length: 10 }, (_, i) => ({
+            id: `${cell.id}_small_${i + 1}`,
+            title: "",
+            achievement: 0,
+            status: "not_started" as const,
+            isChecked: false,
+          })),
+        };
+      });
+    });
+    setSmallCharts(newSmallCharts);
+    setSavedSmallCharts(newSmallCharts);
+    
+    // activePlGoalsをリセット
+    setActivePlGoals({});
+    
+    // アニメーション状態をリセット
+    setIsVisible(false);
+    setTimeout(() => {
+      setIsVisible(true);
+    }, 100);
+    
+  }, [selectedUser?.id]); 
+
+
   // アニメーション制御
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -423,7 +494,6 @@ const MandalaChart: React.FC = () => {
 
   useEffect(() => {
     const handleGoalUpdate = () => {
-      console.log("保存状態を更新します");
       updateSavedState();
     };
 
@@ -451,7 +521,6 @@ const MandalaChart: React.FC = () => {
       }
 
       try {
-        console.log('マンダラチャートデータを取得します:', selectedUser.id);
         const response = await Service.getApiMandalaCharts(selectedUser.id);
         
         if (response.responseStatus === 1 && response.charts) {
@@ -461,7 +530,6 @@ const MandalaChart: React.FC = () => {
           if (activeChart) {
             // CHART_IDを保持
             if (activeChart.chart_id) {
-              console.log('CHART_IDを設定します:', activeChart.chart_id);
               currentChartIdRef.current = activeChart.chart_id;
             }
             
@@ -478,7 +546,6 @@ const MandalaChart: React.FC = () => {
             
             // 大目標のデータを画面に反映
             if (activeChart.large_goals && activeChart.large_goals.length > 0) {
-              console.log('大目標データを設定します:', activeChart.large_goals);
               
               // goal_typeをplMetricに変換する関数
               const convertGoalTypeToPlMetric = (goalType?: number): PlMetric | undefined => {
@@ -546,28 +613,9 @@ const MandalaChart: React.FC = () => {
   
   useEffect(() => {
     if (selectedUser?.id && !userSetup) {
-      console.log('userSetupをロードします');
       loadUserSetup();
     }
   }, [selectedUser?.id, userSetup, loadUserSetup]);
-
-  useEffect(() => {
-    console.log('📝 smallCharts state updated');
-    
-    Object.entries(smallCharts).forEach(([, chart]) => {
-      chart.cells.forEach((cell) => {
-        if (cell.title === "1年目に売上100万円") {
-          console.log('🎯 Target cell in state:', {
-            id: cell.id,
-            title: cell.title,
-            isChecked: cell.isChecked,
-            achievement: cell.achievement,
-            status: cell.status
-          });
-        }
-      });
-    });
-  }, [smallCharts]);
 
   useEffect(() => {
     const charts: { [key: string]: MandalaSubChart } = {};
@@ -668,16 +716,13 @@ const MandalaChart: React.FC = () => {
     const largeGoalId = largeCell?.largeGoalId;
 
     if (!largeGoalId) {
-      console.log('largeGoalIdが存在しないため、API呼び出しをスキップします');
       return;
     }
 
     try {
-      console.log('中目標一覧取得APIを実行します:', largeGoalId);
       const response = await Service.getApiMiddleGoals(largeGoalId);
 
       if (response.responseStatus === 1 && response.middle_goals) {
-        console.log('中目標データを取得しました:', response.middle_goals);
 
         // goal_typeをplMetricに変換する関数
         const convertGoalTypeToPlMetric = (goalType?: number): PlMetric | undefined => {
@@ -714,7 +759,6 @@ const MandalaChart: React.FC = () => {
           const middleChart = updated[cellId];
 
           if (!middleChart) {
-            console.error('middleChartが見つかりません:', cellId);
             return prev;
           }
 
@@ -750,12 +794,10 @@ const MandalaChart: React.FC = () => {
           return updated;
         });
 
-        console.log('中目標データの設定が完了しました');
       } else {
         console.error('中目標データの取得に失敗しました:', response);
       }
     } catch (error) {
-      console.error('中目標一覧取得API呼び出しエラー:', error);
     }
   };
 
@@ -765,8 +807,7 @@ const MandalaChart: React.FC = () => {
 
     // 選択された中目標のmiddleGoalIdを取得
     if (!selectedLargeCellId || !middleCharts[selectedLargeCellId]) {
-      console.log('selectedLargeCellIdまたはmiddleChartsが存在しないため、API呼び出しをスキップします');
-      return;
+       return;
     }
 
     const middleChart = middleCharts[selectedLargeCellId];
@@ -774,16 +815,13 @@ const MandalaChart: React.FC = () => {
     const middleGoalId = middleCell?.middleGoalId;
 
     if (!middleGoalId) {
-      console.log('middleGoalIdが存在しないため、API呼び出しをスキップします');
       return;
     }
 
     try {
-      console.log('小目標一覧取得APIを実行します:', middleGoalId);
       const response = await Service.getApiSmallGoals(middleGoalId);
 
       if (response.responseStatus === 1 && response.small_goals) {
-        console.log('小目標データを取得しました:', response.small_goals);
 
         // small_goalsをpositionでソート
         const sortedSmallGoals = [...response.small_goals].sort((a, b) => {
@@ -798,7 +836,6 @@ const MandalaChart: React.FC = () => {
           const smallChart = updated[cellId];
 
           if (!smallChart) {
-            console.error('smallChartが見つかりません:', cellId);
             return prev;
           }
 
@@ -844,12 +881,10 @@ const MandalaChart: React.FC = () => {
           return current;
         });
 
-        console.log('小目標データの設定が完了しました');
       } else {
         console.error('小目標データの取得に失敗しました:', response);
       }
     } catch (error) {
-      console.error('小目標一覧取得API呼び出しエラー:', error);
     }
   };
 
@@ -860,19 +895,16 @@ const MandalaChart: React.FC = () => {
   
     // 大目標の最新データを再取得
     if (!selectedUser || !selectedUser.id) {
-      console.log('userIdが存在しないため、データ取得をスキップします');
       return;
     }
   
     try {
-      console.log('マンダラチャート取得APIを実行します（戻る時）:', selectedUser.id);
       const response = await Service.getApiMandalaCharts(selectedUser.id);
       
       if (response.responseStatus === 1 && response.charts) {
         const activeChart = response.charts.find(chart => chart.is_active === true);
         
         if (activeChart && activeChart.large_goals) {
-          console.log('大目標データを再取得しました');
           
           // goal_typeをplMetricに変換する関数
           const convertGoalTypeToPlMetric = (goalType?: number): PlMetric | undefined => {
@@ -923,8 +955,6 @@ const MandalaChart: React.FC = () => {
             });
             return updated;
           });
-  
-          console.log('大目標データの再取得と設定が完了しました');
         }
       }
     } catch (error) {
@@ -938,7 +968,6 @@ const MandalaChart: React.FC = () => {
   
     // 中目標の最新データを再取得
     if (!selectedLargeCellId) {
-      console.log('selectedLargeCellIdが存在しないため、データ取得をスキップします');
       return;
     }
   
@@ -946,17 +975,14 @@ const MandalaChart: React.FC = () => {
     const largeGoalId = largeCell?.largeGoalId;
   
     if (!largeGoalId) {
-      console.log('largeGoalIdが存在しないため、データ取得をスキップします');
       return;
     }
   
     try {
-      console.log('中目標一覧取得APIを実行します（戻る時）:', largeGoalId);
       const response = await Service.getApiMiddleGoals(largeGoalId);
   
       if (response.responseStatus === 1 && response.middle_goals) {
-        console.log('中目標データを再取得しました:', response.middle_goals);
-  
+        
         // goal_typeをplMetricに変換する関数
         const convertGoalTypeToPlMetric = (goalType?: number): PlMetric | undefined => {
           switch (goalType) {
@@ -1028,7 +1054,6 @@ const MandalaChart: React.FC = () => {
           return updated;
         });
   
-        console.log('中目標データの再取得と設定が完了しました');
       } else {
         console.error('中目標データの再取得に失敗しました:', response);
       }
@@ -1211,7 +1236,6 @@ const MandalaChart: React.FC = () => {
 
         const response = await withErrorHandling(() => Service.putApiSaleUpdate(saleSchema));
         if (response.responseStatus === 1) {
-          console.log(`売上年次PLの更新に成功しました（FY${targetYear}）`);
         } else {
           console.error(`売上年次PLの更新に失敗しました（FY${targetYear}）`);
         }
@@ -1232,7 +1256,6 @@ const MandalaChart: React.FC = () => {
 
         const response = await withErrorHandling(() => Service.putApiGrossProfitUpdate(grossProfitSchema));
         if (response.responseStatus === 1) {
-          console.log(`粗利益年次PLの更新に成功しました（FY${targetYear}）`);
         } else {
           console.error(`粗利益年次PLの更新に失敗しました（FY${targetYear}）`);
         }
@@ -1253,7 +1276,6 @@ const MandalaChart: React.FC = () => {
 
         const response = await withErrorHandling(() => Service.putApiOperatingProfitUpdate(operatingProfitSchema));
         if (response.responseStatus === 1) {
-          console.log(`営業利益年次PLの更新に成功しました（FY${targetYear}）`);
         } else {
           console.error(`営業利益年次PLの更新に失敗しました（FY${targetYear}）`);
         }
@@ -1332,7 +1354,6 @@ const MandalaChart: React.FC = () => {
         );
         
         if (response.responseStatus === 1) {
-          console.log('✅ 大目標の更新に成功しました');
           
           setLargeCells((prev) =>
             prev.map((c) =>
@@ -1371,7 +1392,6 @@ const MandalaChart: React.FC = () => {
         );
         
         if (response.responseStatus === 1) {
-          console.log('✅ 大目標の作成に成功しました');
           const createdLargeGoalId = response.large_goal_id;
           if (createdLargeGoalId) {
             setLargeCells((prev) =>
@@ -1447,7 +1467,6 @@ const MandalaChart: React.FC = () => {
         );
 
         if (response.responseStatus === 1) {
-          console.log('✅ 中目標の更新に成功しました');
           
           setMiddleCharts((prev) => ({
             ...prev,
@@ -1489,7 +1508,6 @@ const MandalaChart: React.FC = () => {
         );
 
         if (response.responseStatus === 1) {
-          console.log('✅ 中目標の作成に成功しました');
           const createdMiddleGoalId = response.middle_goal_id;
           if (createdMiddleGoalId) {
             setMiddleCharts((prev) => ({
@@ -1546,12 +1564,6 @@ const MandalaChart: React.FC = () => {
     amountInManYen?: number,
     targetYearIndex?: number
   ) => {
-    // ★ デバッグログ
-    console.log('=== handleGoalSubmit DEBUG ===');
-    console.log('goalType received:', goalType);
-    console.log('amountInManYen:', amountInManYen);
-    console.log('targetYearIndex:', targetYearIndex);
-    console.log('goal text:', goal);
   
     const { cellId, cellType } = goalInputModal;
   
@@ -1575,7 +1587,6 @@ const MandalaChart: React.FC = () => {
     
     // 定性的目標の場合は通常の処理（年次PL連動なし）
     if (goalType === 'qualitative') {
-      console.log('Processing qualitative goal');
       if (cellType === 'large') {
         const currentCell = largeCells.find(c => c.id === cellId);
         const largeGoalId = currentCell?.largeGoalId;
@@ -1599,7 +1610,6 @@ const MandalaChart: React.FC = () => {
               );
               
               if (response.responseStatus === 1) {
-                console.log('✅ 大目標（定性）の更新に成功しました');
                 setLargeCells((prev) =>
                   prev.map((c) =>
                     c.id === cellId ? { ...c, title: goal, plMetric: undefined, largeGoalId: largeGoalId } : c
@@ -1620,7 +1630,6 @@ const MandalaChart: React.FC = () => {
               );
               
               if (response.responseStatus === 1) {
-                console.log('✅ 大目標（定性）の作成に成功しました');
                 const createdLargeGoalId = response.large_goal_id;
                 if (createdLargeGoalId) {
                   setLargeCells((prev) =>
@@ -1669,7 +1678,6 @@ const MandalaChart: React.FC = () => {
             );
   
             if (response.responseStatus === 1) {
-              console.log('✅ 中目標（定性）の更新に成功しました');
               setMiddleCharts((prev) => ({
                 ...prev,
                 [selectedLargeCellId]: {
@@ -1693,7 +1701,6 @@ const MandalaChart: React.FC = () => {
             );
   
             if (response.responseStatus === 1) {
-              console.log('✅ 中目標（定性）の作成に成功しました');
               const createdMiddleGoalId = response.middle_goal_id;
               if (createdMiddleGoalId) {
                 setMiddleCharts((prev) => ({
@@ -1720,7 +1727,6 @@ const MandalaChart: React.FC = () => {
       let currentUserSetup = userSetup;
       
       if (!currentUserSetup || !currentUserSetup.fiscalYearStartYear) {
-        console.log('userSetupが存在しないため、ロードします');
         try {
           await loadUserSetup();
           await new Promise(resolve => setTimeout(resolve, 100));
@@ -1740,7 +1746,6 @@ const MandalaChart: React.FC = () => {
               fiscalYearStartMonth: setupResponse.settingSchema.fiscalYearStartMonth || 4,
               fiscalYearStartYear: setupResponse.settingSchema.fiscalYearStartYear || new Date().getFullYear(),
             } as any;
-            console.log('userSetupをロードしました:', currentUserSetup);
           } else {
             console.error('userSetupの取得に失敗しました');
             alert('事業年度設定の取得に失敗しました。設定画面で事業年度を設定してください。');
@@ -1761,9 +1766,6 @@ const MandalaChart: React.FC = () => {
       
       const finalTargetYear = currentUserSetup.fiscalYearStartYear + targetYearIndex - 1;
       const finalTargetAmount = amountInManYen * 10000;
-      
-      console.log('finalTargetYear:', finalTargetYear);
-      console.log('finalTargetAmount:', finalTargetAmount);
       
       // ★ 修正：マンダラチャートのデータから直接重複をチェック
       let conflict = { hasConflict: false, existingCellTitle: '', existingAmount: 0 };
@@ -1973,7 +1975,6 @@ const MandalaChart: React.FC = () => {
     try {
       if (smallGoalId) {
         // smallGoalIdがある場合は更新APIを実行
-        console.log('小目標更新APIを実行します:', smallGoalId);
         const response = await Service.putApiSmallGoalsUpdate(
           smallGoalId,
           {
@@ -1983,7 +1984,6 @@ const MandalaChart: React.FC = () => {
         );
 
         if (response.responseStatus === 1) {
-          console.log('小目標の更新に成功しました');
           // 画面の状態を更新
           setSmallCharts((prev) => ({
             ...prev,
@@ -2010,7 +2010,6 @@ const MandalaChart: React.FC = () => {
       } else {
         // smallGoalIdがない場合は新規作成APIを実行
         // パスパラメータはmiddleGoalIdを使用
-        console.log('小目標新規作成APIを実行します:', middleGoalId);
         const response = await Service.postApiSmallGoalsCreate(
           middleGoalId,
           {
@@ -2020,7 +2019,6 @@ const MandalaChart: React.FC = () => {
         );
 
         if (response.responseStatus === 1) {
-          console.log('小目標の作成に成功しました');
           // 作成されたsmallGoalIdを保存
           const createdSmallGoalId = response.small_goal_id;
           if (createdSmallGoalId) {
@@ -2066,11 +2064,9 @@ const MandalaChart: React.FC = () => {
     // smallGoalIdが存在する場合はAPIを呼び出す
     if (smallGoalId) {
       try {
-        console.log('小目標完了/未完了切替APIを実行します:', smallGoalId);
         const response = await Service.putApiSmallGoalsComplete(smallGoalId);
 
         if (response.responseStatus === 1) {
-          console.log('小目標の完了/未完了切替に成功しました');
           const isCompleted = response.is_completed || false;
           const newStatus: MandalaCell["status"] = isCompleted
             ? "achieved"
@@ -2170,7 +2166,6 @@ const MandalaChart: React.FC = () => {
     middleCellId: string,
     smallCells: MandalaCell[]
   ) => {
-    console.log('🔄 updateMiddleAchievement called with:', middleCellId);
     
     const checkedCount = smallCells.filter((c) => c.isChecked).length;
     const achievement = Math.round((checkedCount / 10) * 100);
@@ -2179,18 +2174,10 @@ const MandalaChart: React.FC = () => {
       let hasUpdate = false;
       const updatedCells = middleChart.cells.map((cell) => {
         if (cell.id === middleCellId) {
-          console.log('✅ Found matching middle cell:', {
-            largeId,
-            middleCellId: cell.id,
-            title: cell.title,
-            currentAchievement: cell.achievement,
-            newAchievement: achievement
-          });
-
+          
           const prevCell = cell;
 
           if (prevCell.status === "achieved") {
-            console.log('⏭️ Skipping already achieved cell:', cell.id);
             return cell;
           }
 
@@ -2222,7 +2209,6 @@ const MandalaChart: React.FC = () => {
       });
 
       if (hasUpdate) {
-        console.log('💾 Updating middle chart:', largeId);
         setMiddleCharts((prev) => ({
           ...prev,
           [largeId]: {
@@ -2368,7 +2354,6 @@ const MandalaChart: React.FC = () => {
                   <div
                     key="center"
                     onClick={() => {
-                      console.log('Center cell clicked!');
                       setCenterGoalModalOpen(true);
                     }}
                     className={`aspect-square p-4 flex flex-col items-center justify-center hover:shadow-lg transition-all group duration-500 cursor-pointer ${
@@ -3345,11 +3330,9 @@ const MandalaChart: React.FC = () => {
             try {
               // useRefで最新の値を確実に取得
               const chartId = currentChartIdRef.current;
-              console.log('保存時のcurrentChartId:', chartId);
               
               if (chartId) {
                 // CHART_IDがある場合は更新APIを実行
-                console.log('更新APIを実行します:', chartId);
                 const response = await Service.putApiMandalaChartsMainGoalUpdate(
                   chartId,
                   {
@@ -3359,13 +3342,11 @@ const MandalaChart: React.FC = () => {
                 );
                 
                 if (response.responseStatus === 1) {
-                  console.log('マンダラチャートのメイン目標更新に成功しました');
                 } else {
                   console.error('マンダラチャートのメイン目標更新に失敗しました');
                 }
               } else {
                 // CHART_IDがない場合は新規作成APIを実行
-                console.log('新規作成APIを実行します');
                 const response = await Service.postApiMandalaChartsCreate({
                   userId: selectedUser.id,
                   main_goal: {
@@ -3375,7 +3356,6 @@ const MandalaChart: React.FC = () => {
                 });
                 
                 if (response.responseStatus === 1) {
-                  console.log('マンダラチャートの作成に成功しました');
                   // 作成後にCHART_IDを取得するため、再度データを取得
                   const chartsResponse = await Service.getApiMandalaCharts(selectedUser.id);
                   if (chartsResponse.responseStatus === 1 && chartsResponse.charts) {

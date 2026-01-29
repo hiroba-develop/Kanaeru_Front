@@ -64,12 +64,7 @@ const Login: React.FC = () => {
 
     try {
       const passwordHash = sha256(password);
-      
-      console.log("ログイン試行:", { email, passwordHash });
-      
       const response = await Service.postApiAuthLogin(email, passwordHash);
-      
-      console.log("ログインレスポンス:", response);
       
       if (response.responseStatus === 1) {
         if (response.token) {
