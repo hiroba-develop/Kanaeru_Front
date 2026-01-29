@@ -70,7 +70,13 @@ const Login: React.FC = () => {
         if (response.token) {
           const expires = new Date();
           expires.setTime(expires.getTime() + 24 * 60 * 60 * 1000);
-          document.cookie = `authToken=${response.token};expires=${expires.toUTCString()};path=/;SameSite=Strict`;
+          
+          // HTTPSかどうかを判定
+          const isSecure = window.location.protocol === 'https:';
+          
+          // SameSite=Laxに変更（StrictだとiOSで問題が発生する可能性がある）
+          // HTTPS環境ではSecure属性を追加
+          document.cookie = `authToken=${response.token};expires=${expires.toUTCString()};path=/;SameSite=Lax${isSecure ? ';Secure' : ''}`;
         }
         
         await login(

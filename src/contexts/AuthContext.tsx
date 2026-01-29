@@ -36,10 +36,24 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const setCookie = (name: string, value: string, hours: number = 24) => {
   const expires = new Date();
   expires.setTime(expires.getTime() + hours * 60 * 60 * 1000);
-  document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;SameSite=Strict`;
+  
+  // HTTPSかどうかを判定
+  const isSecure = window.location.protocol === 'https:';
+  
+  // SameSite=Laxに変更（StrictだとiOSで問題が発生する可能性がある）
+  // HTTPS環境ではSecure属性を追加
+  document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;SameSite=Lax${isSecure ? ';Secure' : ''}`;
+  
+  // localStorageにもバックアップ（Cookieが使えない場合の保険）
+  try {
+    localStorage.setItem(name, value);
+  } catch (e) {
+    console.error('localStorage保存エラー:', e);
+  }
 };
 
 const getCookie = (name: string): string | null => {
+  // まずCookieから取得を試みる
   const nameEQ = name + "=";
   const ca = document.cookie.split(";");
   for (let i = 0; i < ca.length; i++) {
@@ -47,11 +61,33 @@ const getCookie = (name: string): string | null => {
     while (c.charAt(0) === " ") c = c.substring(1, c.length);
     if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
   }
+  
+  // Cookieから取得できなかった場合、localStorageから取得を試みる
+  try {
+    const localValue = localStorage.getItem(name);
+    if (localValue) {
+      return localValue;
+    }
+  } catch (e) {
+    console.error('localStorage読取エラー:', e);
+  }
+  
   return null;
 };
 
 const deleteCookie = (name: string) => {
-  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Strict`;
+  // HTTPSかどうかを判定
+  const isSecure = window.location.protocol === 'https:';
+  
+  // Cookieを削除
+  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Lax${isSecure ? ';Secure' : ''}`;
+  
+  // localStorageからも削除
+  try {
+    localStorage.removeItem(name);
+  } catch (e) {
+    console.error('localStorage削除エラー:', e);
+  }
 };
 
 export const useAuth = () => {
