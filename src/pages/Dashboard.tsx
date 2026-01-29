@@ -342,10 +342,7 @@ const Dashboard: React.FC = () => {
                   const cellIndex = index > 4 ? index - 1 : index;
                   const cell = mandalaGrid.majorCells[cellIndex];
                   const hasContent = !!cell?.title;
-                  const isCompleted =
-                    !!cell &&
-                    (cell.status === "achieved" || cell.achievement >= 100);
-
+                  
                   return (
                     <div
                       key={index}
@@ -361,24 +358,9 @@ const Dashboard: React.FC = () => {
                         padding: 'clamp(4px, 1vw, 8px)'
                       }}
                     >
-                      {isCompleted && (
-                        <img
-                          src={complate_icon}
-                          alt="達成リング"
-                          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-80 pointer-events-none"
-                          style={{
-                            width: 'clamp(40px, 60%, 80px)',
-                            height: 'clamp(40px, 60%, 80px)',
-                            objectFit: 'contain'
-                          }}
-                        />
-                      )}
-
                       <p
                         className={`relative z-10 text-center font-medium line-clamp-3 whitespace-pre-line ${
-                          isCompleted
-                            ? "text-achieved"
-                            : hasContent
+                          hasContent  // ★ isCompletedの条件を削除
                             ? "text-primary"
                             : "text-text/50"
                         }`}
