@@ -461,6 +461,13 @@ export const parseAmountFromText = (text: string): number => {
  *   5000000 → "500万"
  *   999 → "999"
  */
+/**
+ * 円単位の数値を「億円」「万円」「円」の適切な単位で表示文字列に変換
+ * 例:
+ *   6660000000 → "66億6000万"
+ *   5000000 → "500万"
+ *   999 → "999"
+ */
 export const formatAmountToText = (amount: number): string => {
   if (amount === 0) return "0";
   
@@ -471,36 +478,23 @@ export const formatAmountToText = (amount: number): string => {
   if (absAmount >= 100_000_000) {
     const oku = Math.floor(absAmount / 100_000_000);
     const remainder = absAmount % 100_000_000;
-    const man = Math.round(remainder / 10_000);
+    const man = Math.floor(remainder / 10_000);
     
     if (man === 0) {
-      return `${sign}${oku.toLocaleString()}億`;
+      return `${sign}${oku}億`;
     } else {
-      return `${sign}${oku.toLocaleString()}億${man.toLocaleString()}万`;
+      return `${sign}${oku}億${man}万`;
     }
   }
   
   // 1万円以上の場合
   if (absAmount >= 10_000) {
-    const man = Math.round(absAmount / 10_000);
-    
-    // 万円が10,000以上の場合は億円に変換
-    if (man >= 10_000) {
-      const oku = Math.floor(man / 10_000);
-      const remainingMan = man % 10_000;
-      
-      if (remainingMan === 0) {
-        return `${sign}${oku.toLocaleString()}億`;
-      } else {
-        return `${sign}${oku.toLocaleString()}億${remainingMan.toLocaleString()}万`;
-      }
-    }
-    
-    return `${sign}${man.toLocaleString()}万`;
+    const man = Math.floor(absAmount / 10_000);
+    return `${sign}${man}万`;
   }
   
   // 1万円未満の場合
-  return `${sign}${absAmount.toLocaleString()}`;
+  return `${sign}${absAmount}`;
 };
 
 /**
