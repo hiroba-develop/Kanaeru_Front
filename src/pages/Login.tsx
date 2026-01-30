@@ -66,17 +66,6 @@ const Login: React.FC = () => {
       const passwordHash = sha256(password);
       const response = await Service.postApiAuthLogin(email, passwordHash);
       
-      // デバッグログ：APIレスポンスを確認
-      console.log('[Login] APIレスポンス:', {
-        responseStatus: response.responseStatus,
-        userId: response.userId,
-        name: response.name,
-        email: response.email,
-        role: response.role,
-        token: response.token ? '***存在する***' : undefined,
-        userImageUrl: response.userImageUrl,
-      });
-      
       if (response.responseStatus === 1) {
         if (response.token) {
           const expires = new Date();
@@ -89,15 +78,7 @@ const Login: React.FC = () => {
           // HTTPS環境ではSecure属性を追加
           document.cookie = `authToken=${response.token};expires=${expires.toUTCString()};path=/;SameSite=Lax${isSecure ? ';Secure' : ''}`;
         }
-        
-        console.log('[Login] login関数に渡す値:', {
-          email,
-          userId: response.userId,
-          role: response.role,
-          name: response.name,
-          userImageUrl: response.userImageUrl,
-        });
-        
+               
         await login(
           email,
           passwordHash,

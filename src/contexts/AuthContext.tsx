@@ -159,13 +159,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const userImageUrl = getCookie("userImageUrl");
       const userEmail = getCookie("userEmail"); // ← 追加
 
-      // デバッグログ：重要な値のみ表示
-      console.log('[AuthContext] 認証情報復元:', {
-        hasUserId: !!userId,
-        userName: userName || '(空)',
-        role,
-      });
-
       if (!userId) {
         setShouldRedirectToLogin(true);
         setIsLoading(false);
@@ -272,17 +265,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       setUser(user);
       setShouldRedirectToLogin(false);
-
-      // デバッグログ：Cookieに保存する値を確認
-      console.log('[AuthContext] Cookieに保存する値:', {
-        userId,
-        userEmail: email,
-        role,
-        userName: name,
-        userImageUrl,
-        nameExists: !!name,
-        nameLength: name?.length,
-      });
 
       // Cookieに保存
       setCookie("userId", userId);
