@@ -53,16 +53,7 @@ const setCookie = (name: string, value: string, hours: number = 24) => {
 };
 
 const getCookie = (name: string): string | null => {
-  // まずCookieから取得を試みる
-  const nameEQ = name + "=";
-  const ca = document.cookie.split(";");
-  for (let i = 0; i < ca.length; i++) {
-    let c = ca[i];
-    while (c.charAt(0) === " ") c = c.substring(1, c.length);
-    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
-  }
-  
-  // Cookieから取得できなかった場合、localStorageから取得を試みる
+  // iPhone/iOSではlocalStorageを優先（Cookieに問題がある場合が多いため）
   try {
     const localValue = localStorage.getItem(name);
     if (localValue) {
@@ -70,6 +61,18 @@ const getCookie = (name: string): string | null => {
     }
   } catch (e) {
     console.error('localStorage読取エラー:', e);
+  }
+  
+  // localStorageに無い場合、Cookieから取得を試みる
+  const nameEQ = name + "=";
+  const ca = document.cookie.split(";");
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === " ") c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) === 0) {
+      const value = c.substring(nameEQ.length, c.length);
+      return value;
+    }
   }
   
   return null;
@@ -155,6 +158,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const userName = getCookie("userName");
       const userImageUrl = getCookie("userImageUrl");
       const userEmail = getCookie("userEmail"); // ← 追加
+
+      // デバッグログ：重要な値のみ表示
+      console.log('[AuthContext] 認証情報復元:', {
+        hasUserId: !!userId,
+        userName: userName || '(空)',
+        role,
+      });
 
       if (!userId) {
         setShouldRedirectToLogin(true);
@@ -263,12 +273,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(user);
       setShouldRedirectToLogin(false);
 
-      // Cookieに保存（emailも追加）
+      // デバッグログ：Cookieに保存する値を確認
+      console.log('[AuthContext] Cookieに保存する値:', {
+        userId,
+        userEmail: email,
+        role,
+        userName: name,
+        userImageUrl,
+        nameExists: !!name,
+        nameLength: name?.length,
+      });
+
+      // Cookieに保存
       setCookie("userId", userId);
       setCookie("userEmail", email);
       if (role) setCookie("role", role);
       if (token) setCookie("authToken", token);
-      if (name) setCookie("userName", name);
+      // nameが空文字列でもCookieに保存（空文字列チェックを追加）
+      if (name !== undefined && name !== null) {
+        setCookie("userName", name);
+      }
       if (userImageUrl) setCookie("userImageUrl", userImageUrl);
 
       // 管理者ユーザー（role:1または2）の場合、ユーザー一覧を取得
