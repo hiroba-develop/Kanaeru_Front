@@ -35,5 +35,17 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- モバイルデバッグ用: Eruda（開発時のみ使用） -->
+    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+    <script>
+      // 開発環境またはstagingでのみErudaを有効化
+      if (window.location.hostname === 'localhost' || 
+          window.location.hostname === '127.0.0.1' || 
+          window.location.hostname.includes('staging')) {
+        eruda.init();
+        console.log('[Eruda] モバイルデバッグツールを起動しました');
+      }
+    </script>
   </body>
 </html>
