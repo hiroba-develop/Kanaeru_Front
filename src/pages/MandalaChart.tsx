@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { usePermission } from "../hooks/usePermission";
 import CenterGoalModal from "../components/CenterGoalModal";  
 import GoalInputModal from "../components/GoalInputModal";
 import AchievementPopup from "../components/AchievementPopup";
@@ -270,6 +271,7 @@ LevelIndicator.displayName = 'LevelIndicator';
 type ViewLevel = "large" | "middle" | "small";
 
 const MandalaChart: React.FC = () => {
+  const { canEdit } = usePermission();
   const { selectedUser, userSetup, loadUserSetup } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1185,15 +1187,13 @@ const MandalaChart: React.FC = () => {
       console.error('ユーザーIDが取得できませんでした');
       return;
     }
-
+  
     try {
       // userSetupが読み込まれていない場合は読み込む
       let currentUserSetup = userSetup;
       if (!currentUserSetup) {
         await loadUserSetup();
-        // loadUserSetup後、userSetupが更新されるまで少し待つ
         await new Promise(resolve => setTimeout(resolve, 100));
-        // 再度userSetupを取得
         const { Service } = await import("../api/services/Service");
         const { withErrorHandling: withErrorHandlingForSetup } = await import("../utils/apiErrorHandler");
         const setupResponse = await withErrorHandlingForSetup(() => 
@@ -1206,82 +1206,128 @@ const MandalaChart: React.FC = () => {
           } as any;
         }
       }
-
+  
       // 事業開始年月を取得（userSetupから取得、デフォルトは4月）
       const fiscalYearStartMonth = currentUserSetup?.fiscalYearStartMonth || 4;
-      const dataYear = targetYear;
-      const dataMonth = fiscalYearStartMonth;
-
-      // 既存の年次PLデータを取得して実績値を保持
-      const yearlyResponse = await withErrorHandling(() =>
-        Service.getApiYearlyBudgetActual(selectedUser.id)
+  
+      // ★ 追加：年次金額を12分割
+      const monthlyTarget = Math.floor(targetAmount / 12);
+      const remainder = targetAmount - (monthlyTarget * 12); // 端数
+  
+      // 既存の月次PLデータを取得して実績値を保持
+      const monthlyResponse = await withErrorHandling(() =>
+        Service.getApiMonthlyBudgetActual(
+          selectedUser.id,
+          targetYear,
+          fiscalYearStartMonth.toString()
+        )
       );
-
-      let existingActual = 0;
-
-      if (goalType === 'revenue') {
-        // 売上項目を更新
-        if (yearlyResponse.saleSchema) {
-          const existingSale = yearlyResponse.saleSchema.find(s => s.year === targetYear);
-          existingActual = existingSale?.saleResult || 0;
+  
+      // ★ 追加：12ヶ月分のAPIコールを作成
+      const updatePromises: Promise<void>[] = [];
+  
+      for (let i = 0; i < 12; i++) {
+        // 月を計算（事業開始月から12ヶ月）
+        const monthIndex = (fiscalYearStartMonth - 1 + i) % 12;
+        const month = monthIndex + 1;
+        
+        // 年を計算（12月を超えたら翌年）
+        let actualYear = targetYear;
+        if (month < fiscalYearStartMonth) {
+          actualYear = targetYear + 1;
         }
-
-        const saleSchema: SaleSchema = {
-          userId: selectedUser.id,
-          year: dataYear,
-          month: dataMonth,
-          saleTarget: targetAmount,
-          saleResult: existingActual,
-        };
-
-        const response = await withErrorHandling(() => Service.putApiSaleUpdate(saleSchema));
-        if (response.responseStatus === 1) {
-        } else {
-          console.error(`売上年次PLの更新に失敗しました（FY${targetYear}）`);
-        }
-      } else if (goalType === 'grossProfit') {
-        // 粗利益項目を更新
-        if (yearlyResponse.grossProfitSchema) {
-          const existingGrossProfit = yearlyResponse.grossProfitSchema.find(g => g.year === targetYear);
-          existingActual = existingGrossProfit?.grossProfitResult || 0;
-        }
-
-        const grossProfitSchema: GrossProfitSchema = {
-          userId: selectedUser.id,
-          year: dataYear,
-          month: dataMonth,
-          grossProfitTarget: targetAmount,
-          grossProfitResult: existingActual,
-        };
-
-        const response = await withErrorHandling(() => Service.putApiGrossProfitUpdate(grossProfitSchema));
-        if (response.responseStatus === 1) {
-        } else {
-          console.error(`粗利益年次PLの更新に失敗しました（FY${targetYear}）`);
-        }
-      } else if (goalType === 'operatingProfit') {
-        // 営業利益項目を更新
-        if (yearlyResponse.operatingProfitSchema) {
-          const existingOperatingProfit = yearlyResponse.operatingProfitSchema.find(o => o.year === targetYear);
-          existingActual = existingOperatingProfit?.operatingProfitResult || 0;
-        }
-
-        const operatingProfitSchema: OperatingProfitSchema = {
-          userId: selectedUser.id,
-          year: dataYear,
-          month: dataMonth,
-          operatingProfitTarget: targetAmount,
-          operatingProfitResult: existingActual,
-        };
-
-        const response = await withErrorHandling(() => Service.putApiOperatingProfitUpdate(operatingProfitSchema));
-        if (response.responseStatus === 1) {
-        } else {
-          console.error(`営業利益年次PLの更新に失敗しました（FY${targetYear}）`);
+        
+        // 最初の月に端数を加算
+        const adjustedTarget = i === 0 ? monthlyTarget + remainder : monthlyTarget;
+  
+        if (goalType === 'revenue') {
+          // 既存の実績値を取得
+          let existingActual = 0;
+          if (monthlyResponse.saleSchema) {
+            const existingSale = monthlyResponse.saleSchema.find(
+              s => s.year === actualYear && s.month === month
+            );
+            existingActual = existingSale?.saleResult || 0;
+          }
+  
+          const saleSchema: SaleSchema = {
+            userId: selectedUser.id,
+            year: actualYear,
+            month: month,
+            saleTarget: adjustedTarget,
+            saleResult: existingActual,
+          };
+  
+          updatePromises.push(
+            withErrorHandling(() => Service.putApiSaleUpdate(saleSchema)).then(
+              (response) => {
+                if (response.responseStatus !== 1) {
+                  console.error(`売上月次PLの更新に失敗しました（${actualYear}年${month}月）`);
+                }
+              }
+            )
+          );
+        } else if (goalType === 'grossProfit') {
+          // 既存の実績値を取得
+          let existingActual = 0;
+          if (monthlyResponse.grossProfitSchema) {
+            const existingGrossProfit = monthlyResponse.grossProfitSchema.find(
+              g => g.year === actualYear && g.month === month
+            );
+            existingActual = existingGrossProfit?.grossProfitResult || 0;
+          }
+  
+          const grossProfitSchema: GrossProfitSchema = {
+            userId: selectedUser.id,
+            year: actualYear,
+            month: month,
+            grossProfitTarget: adjustedTarget,
+            grossProfitResult: existingActual,
+          };
+  
+          updatePromises.push(
+            withErrorHandling(() => Service.putApiGrossProfitUpdate(grossProfitSchema)).then(
+              (response) => {
+                if (response.responseStatus !== 1) {
+                  console.error(`粗利益月次PLの更新に失敗しました（${actualYear}年${month}月）`);
+                }
+              }
+            )
+          );
+        } else if (goalType === 'operatingProfit') {
+          // 既存の実績値を取得
+          let existingActual = 0;
+          if (monthlyResponse.operatingProfitSchema) {
+            const existingOperatingProfit = monthlyResponse.operatingProfitSchema.find(
+              o => o.year === actualYear && o.month === month
+            );
+            existingActual = existingOperatingProfit?.operatingProfitResult || 0;
+          }
+  
+          const operatingProfitSchema: OperatingProfitSchema = {
+            userId: selectedUser.id,
+            year: actualYear,
+            month: month,
+            operatingProfitTarget: adjustedTarget,
+            operatingProfitResult: existingActual,
+          };
+  
+          updatePromises.push(
+            withErrorHandling(() => Service.putApiOperatingProfitUpdate(operatingProfitSchema)).then(
+              (response) => {
+                if (response.responseStatus !== 1) {
+                  console.error(`営業利益月次PLの更新に失敗しました（${actualYear}年${month}月）`);
+                }
+              }
+            )
+          );
         }
       }
+  
+      // ★ 追加：すべての月次更新を実行
+      await Promise.all(updatePromises);
     } catch (error) {
-      console.error('年次PL更新エラー:', error);
+      console.error('月次PL更新エラー:', error);
     }
   };
 
@@ -1768,7 +1814,12 @@ const MandalaChart: React.FC = () => {
       const finalTargetAmount = amountInManYen * 10000;
       
       // ★ 修正：マンダラチャートのデータから直接重複をチェック
-      let conflict = { hasConflict: false, existingCellTitle: '', existingAmount: 0 };
+      let conflicts: Array<{
+        existingCellTitle: string;
+        existingAmount: number;
+        existingCellId: string;
+        existingCellType: 'large' | 'middle';
+      }> = [];
       
       // 大目標から重複をチェック（現在編集中のセルを除く）
       largeCells.forEach(cell => {
@@ -1802,126 +1853,179 @@ const MandalaChart: React.FC = () => {
               }
             }
             
-            conflict = {
-              hasConflict: true,
+            conflicts.push({
               existingCellTitle: cleanTitle,
-              existingAmount: cellAmountInManYen * 10000
-            };
+              existingAmount: cellAmountInManYen * 10000,
+              existingCellId: cell.id,
+              existingCellType: 'large'
+            });
           }
         }
       });
       
-      // 中目標から重複をチェック（大目標で見つからなかった場合）
-      if (!conflict.hasConflict) {
-        Object.values(middleCharts).forEach(chart => {
-          chart.cells.forEach(cell => {
-            if (conflict.hasConflict) return; // 既に見つかっている場合はスキップ
+      // 中目標から重複をチェック
+      Object.values(middleCharts).forEach(chart => {
+        chart.cells.forEach(cell => {
+          // 現在編集中のセルの判定
+          const isCurrentCell = cellType === 'middle' && cell.id === cellId;
+          if (isCurrentCell) return; // 自分自身はスキップ
+          
+          if (cell.plMetric !== goalType) return;
+          if (!cell.title) return;
+          
+          const yearMatch = cell.title.match(/(\d+)年目に/);
+          if (yearMatch) {
+            const cellYearIndex = parseInt(yearMatch[1]);
+            const cellAbsoluteYear = currentUserSetup.fiscalYearStartYear + cellYearIndex - 1;
             
-            // 現在編集中のセルの判定
-            const isCurrentCell = cellType === 'middle' && cell.id === cellId;
-            if (isCurrentCell) return; // 自分自身はスキップ
-            
-            if (cell.plMetric !== goalType) return;
-            if (!cell.title) return;
-            
-            const yearMatch = cell.title.match(/(\d+)年目に/);
-            if (yearMatch) {
-              const cellYearIndex = parseInt(yearMatch[1]);
-              const cellAbsoluteYear = currentUserSetup.fiscalYearStartYear + cellYearIndex - 1;
+            if (cellAbsoluteYear === finalTargetYear) {
+              // 金額を抽出
+              let cellAmountInManYen = 0;
+              const cleanTitle = cell.title.replace(/\n/g, '');
+              const okuMatch = cleanTitle.match(/(\d+)億/);
+              const manMatch = cleanTitle.match(/(\d+)万円/);
               
-              if (cellAbsoluteYear === finalTargetYear) {
-                // 金額を抽出
-                let cellAmountInManYen = 0;
-                const cleanTitle = cell.title.replace(/\n/g, '');
-                const okuMatch = cleanTitle.match(/(\d+)億/);
-                const manMatch = cleanTitle.match(/(\d+)万円/);
-                
-                if (okuMatch) {
-                  cellAmountInManYen += parseInt(okuMatch[1]) * 10000;
-                }
-                if (manMatch) {
-                  const manValue = parseInt(manMatch[1]);
-                  if (okuMatch) {
-                    cellAmountInManYen += manValue;
-                  } else {
-                    cellAmountInManYen = manValue;
-                  }
-                }
-                
-                conflict = {
-                  hasConflict: true,
-                  existingCellTitle: cleanTitle,
-                  existingAmount: cellAmountInManYen * 10000
-                };
+              if (okuMatch) {
+                cellAmountInManYen += parseInt(okuMatch[1]) * 10000;
               }
+              if (manMatch) {
+                const manValue = parseInt(manMatch[1]);
+                if (okuMatch) {
+                  cellAmountInManYen += manValue;
+                } else {
+                  cellAmountInManYen = manValue;
+                }
+              }
+              
+              conflicts.push({
+                existingCellTitle: cleanTitle,
+                existingAmount: cellAmountInManYen * 10000,
+                existingCellId: cell.id,
+                existingCellType: 'middle'
+              });
             }
-          });
+          }
         });
-      }
+      });
       
-      if (conflict.hasConflict) {
-        // ★ 競合がある場合は確認ダイアログを表示
+      if (conflicts.length > 0) {
+        // すべての重複目標の金額をチェック
+        const allAmountsSame = conflicts.every(c => {
+          const existingAmountInManYen = Math.round(c.existingAmount / 10000);
+          return existingAmountInManYen === amountInManYen;
+        });
+        
+        // すべての金額が同じ場合は確認ダイアログを表示せず、通常の保存処理
+        if (allAmountsSame) {
+          if (cellType === 'large') {
+            await saveLargeGoal(cellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
+          } else if (cellType === 'middle' && selectedLargeCellId) {
+            await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
+          }
+          return;
+        }
+        
+        // 金額が異なる場合：確認ダイアログを表示
         const metricLabel = 
           goalType === 'revenue' ? '売上' :
           goalType === 'grossProfit' ? '粗利益' : '営業利益';
         
-        const existingAmountInManYen = conflict.existingAmount ? Math.round(conflict.existingAmount / 10000) : 0;
-        const existingAmountDisplay = formatAmountDisplay(existingAmountInManYen);
-        const newAmountDisplay = formatAmountDisplay(amountInManYen);
+        // 複数の既存目標の階層情報を取得
+        const hierarchyInfoList: string[] = [];
         
-        // ★ 追加：既存目標の階層情報を取得
-        let hierarchyInfo = '';
-        
-        // 大目標から検索
-        const existingLargeCell = largeCells.find(cell => {
-          if (!cell.title || cell.plMetric !== goalType) return false;
-          const cleanTitle = cell.title.replace(/\n/g, '');
-          return cleanTitle === conflict.existingCellTitle;
+        conflicts.forEach(conflict => {
+          const existingLargeCell = largeCells.find(cell => cell.id === conflict.existingCellId);
+          
+          if (existingLargeCell) {
+            hierarchyInfoList.push(`大目標：${conflict.existingCellTitle}`);
+          } else {
+            // 中目標の場合、親の大目標を探す
+            Object.entries(middleCharts).forEach(([largeCellId, chart]) => {
+              const middleCell = chart.cells.find(cell => cell.id === conflict.existingCellId);
+              if (middleCell) {
+                const largeCell = largeCells.find(c => c.id === largeCellId);
+                const largeCellTitle = largeCell?.title ? largeCell.title.replace(/\n/g, '') : '';
+                
+                if (largeCellTitle) {
+                  hierarchyInfoList.push(`大目標：${largeCellTitle}\n∟中目標：${conflict.existingCellTitle}`);
+                } else {
+                  hierarchyInfoList.push(`中目標：${conflict.existingCellTitle}`);
+                }
+              }
+            });
+          }
         });
         
-        if (existingLargeCell) {
-          // 大目標の場合
-          hierarchyInfo = `大目標：${conflict.existingCellTitle}`;
-        } else {
-          // 中目標から検索
-          let foundMiddleCell = false;
-          Object.entries(middleCharts).forEach(([largeCellId, chart]) => {
-            if (foundMiddleCell) return;
-            
-            const middleCell = chart.cells.find(cell => {
-              if (!cell.title || cell.plMetric !== goalType) return false;
-              const cleanTitle = cell.title.replace(/\n/g, '');
-              return cleanTitle === conflict.existingCellTitle;
-            });
-            
-            if (middleCell) {
-              foundMiddleCell = true;
-              // 紐づく大目標のタイトルを取得
-              const largeCell = largeCells.find(c => c.id === largeCellId);
-              const largeCellTitle = largeCell?.title ? largeCell.title.replace(/\n/g, '') : '';
-              
-              if (largeCellTitle) {
-                hierarchyInfo = `大目標：${largeCellTitle}\n∟中目標：${conflict.existingCellTitle}`;
-              } else {
-                hierarchyInfo = `中目標：${conflict.existingCellTitle}`;
-              }
-            }
-          });
-        }
+        const hierarchyInfo = hierarchyInfoList.join('\n\n');
+        const newAmountDisplay = formatAmountDisplay(amountInManYen);
         
-        // ★ 修正：メッセージに階層情報を追加
-        const message = `同じ年度に${metricLabel}目標が設定されています。\n\n${hierarchyInfo}\n\n年次PLの目標金額を${newAmountDisplay}に更新しますか？\n※ 上記のマンダラの目標は更新されません。`;
-        
+        const message = `同じ年度に${metricLabel}目標が${conflicts.length}件設定されています。\n\n${hierarchyInfo}\n\n年次PLの目標金額を${newAmountDisplay}に更新しますか？\n※ 上記のマンダラの目標もすべて更新されます。`;
+
         setPlConflictDialog({
           isOpen: true,
           message: message,
           onConfirm: async () => {
             setPlConflictDialog(prev => ({ ...prev, isOpen: false }));
-            await saveGoalWithPlUpdate(cellId, cellType, goal, goalType, finalTargetYear, finalTargetAmount, targetYearIndex, amountInManYen);
+            
+            try {
+              // すべての既存目標を上書き
+              for (const conflict of conflicts) {
+                if (conflict.existingCellType === 'large') {
+                  await saveLargeGoal(
+                    conflict.existingCellId, 
+                    goal, 
+                    goalType, 
+                    finalTargetYear, 
+                    finalTargetAmount, 
+                    true // PLも更新
+                  );
+                } else if (conflict.existingCellType === 'middle') {
+                  let parentLargeCellId: string | undefined;
+                  
+                  Object.entries(middleCharts).forEach(([largeCellId, chart]) => {
+                    const middleCell = chart.cells.find(cell => cell.id === conflict.existingCellId);
+                    if (middleCell) {
+                      parentLargeCellId = largeCellId;
+                    }
+                  });
+                  
+                  if (parentLargeCellId) {
+                    await saveMiddleGoal(
+                      conflict.existingCellId,
+                      parentLargeCellId,
+                      goal,
+                      goalType,
+                      finalTargetYear,
+                      finalTargetAmount,
+                      true // PLも更新
+                    );
+                  }
+                }
+              }
+              
+              // 新しい場所（現在編集中のセル）にも目標を登録
+              // 既存目標のいずれかと現在編集中のセルが異なる場合のみ登録
+              const isNewLocation = !conflicts.some(c => c.existingCellId === cellId);
+              if (isNewLocation) {
+                if (cellType === 'large') {
+                  await saveLargeGoal(cellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
+                } else if (cellType === 'middle' && selectedLargeCellId) {
+                  await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
+                }
+              }
+            } catch (error) {
+              console.error('目標の更新/登録エラー:', error);
+            }
           },
           onCancel: async () => {
             setPlConflictDialog(prev => ({ ...prev, isOpen: false }));
-            await saveGoalWithoutPlUpdate(cellId, cellType, goal, goalType, finalTargetYear, finalTargetAmount);
+            
+            // 「いいえ」の場合：PLは更新せず、マンダラのみ保存
+            if (cellType === 'large') {
+              await saveLargeGoal(cellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
+            } else if (cellType === 'middle' && selectedLargeCellId) {
+              await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
+            }
           }
         });
         
@@ -1933,9 +2037,9 @@ const MandalaChart: React.FC = () => {
         await saveLargeGoal(cellId, goal, goalType, finalTargetYear, finalTargetAmount, true);
       } else if (cellType === 'middle' && selectedLargeCellId) {
         await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, true);
-      }
-          } 
-};
+      } 
+    }
+  };
 
   const saveSmallCell = async (cellId: string) => {
     const chartId = Object.keys(smallCharts).find(key =>
@@ -2354,7 +2458,9 @@ const MandalaChart: React.FC = () => {
                   <div
                     key="center"
                     onClick={() => {
-                      setCenterGoalModalOpen(true);
+                      if (canEdit) {
+                        setCenterGoalModalOpen(true);
+                      }
                     }}
                     className={`aspect-square p-4 flex flex-col items-center justify-center hover:shadow-lg transition-all group duration-500 cursor-pointer ${
                       isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-90'
@@ -2486,7 +2592,7 @@ const MandalaChart: React.FC = () => {
                         <div 
                           className={`flex flex-col items-center h-full group ${hasMainGoal ? 'cursor-pointer' : 'cursor-default'}`} 
                           onClick={() => {
-                            if (hasMainGoal) { // ★ 追加: メイン目標がある場合のみクリック可能
+                            if (hasMainGoal && canEdit)  { // ★ 追加: メイン目標がある場合のみクリック可能
                               openGoalInputModal(cell.id, 'large', cell.title);
                             }
                           }}
@@ -2746,7 +2852,11 @@ const MandalaChart: React.FC = () => {
                   >
                     <div 
                       className="relative z-10 text-center flex flex-col items-center h-full group cursor-pointer"
-                      onClick={() => openGoalInputModal(cell.id, 'middle', cell.title)}
+                      onClick={() => {
+                        if (canEdit) {
+                          openGoalInputModal(cell.id, 'middle', cell.title);
+                        }
+                      }}
                       onMouseEnter={() => setHoveredCellId(cell.id)}
                       onMouseLeave={() => setHoveredCellId(null)}
                     >
@@ -3001,7 +3111,7 @@ const MandalaChart: React.FC = () => {
                     onMouseEnter={() => setHoveredCellId(cell.id)}
                     onMouseLeave={() => setHoveredCellId(null)}
                   >
-                    {isCellHovered && !cell.title && (
+                    {isCellHovered && !cell.title && canEdit && (  // ★ canEdit条件を追加
                       <div
                         className="absolute pointer-events-none transition-opacity duration-200"
                         style={{
@@ -3024,13 +3134,13 @@ const MandalaChart: React.FC = () => {
                         e.stopPropagation();
                         handleSmallCheck(cell.id);
                       }}
-                      disabled={!cell.title || cellChanged}
+                      disabled={!cell.title || cellChanged || !canEdit}  // ★ !canEditを追加
                       className="flex-shrink-0 flex items-center justify-center transition-all duration-300 hover:scale-110"
                       style={{
                         width: 'clamp(20px, 4vw, 24px)',
                         height: 'clamp(20px, 4vw, 24px)',
-                        cursor: (cell.title && !cellChanged) ? 'pointer' : 'not-allowed',
-                        opacity: (!cell.title || cellChanged) ? 0.5 : 1
+                        cursor: (cell.title && !cellChanged && canEdit) ? 'pointer' : 'default',  // ★ canEdit条件を追加
+                        opacity: (!cell.title || cellChanged || !canEdit) ? 0.5 : 1  // ★ !canEdit条件を追加
                       }}
                     >
                       {cell.isChecked ? (
@@ -3073,21 +3183,24 @@ const MandalaChart: React.FC = () => {
                     </button>
 
                     <div className="flex-1 min-w-0 flex items-center relative">
-                      <input
+                    <input
                         type="text"
                         value={cell.title}
-                        maxLength={22}
+                        maxLength={30}
+                        readOnly={!canEdit}  // ★ 追加
                         onChange={(e) => {
-                          const newTitle = e.target.value;
-                          setSmallCharts({
-                            ...smallCharts,
-                            [selectedMiddleCellId!]: {
-                              ...smallCharts[selectedMiddleCellId!],
-                              cells: smallCharts[selectedMiddleCellId!].cells.map((c) =>
-                                c.id === cell.id ? { ...c, title: newTitle } : c
-                              ),
-                            },
-                          });
+                          if (canEdit) {  // ★ 追加
+                            const newTitle = e.target.value;
+                            setSmallCharts({
+                              ...smallCharts,
+                              [selectedMiddleCellId!]: {
+                                ...smallCharts[selectedMiddleCellId!],
+                                cells: smallCharts[selectedMiddleCellId!].cells.map((c) =>
+                                  c.id === cell.id ? { ...c, title: newTitle } : c
+                                ),
+                              },
+                            });
+                          }
                         }}
                         placeholder=""
                         className="w-full bg-transparent font-medium"
@@ -3102,7 +3215,8 @@ const MandalaChart: React.FC = () => {
                           textAlign: 'left',
                           border: 'none',
                           outline: 'none',
-                          boxShadow: 'none'
+                          boxShadow: 'none',
+                          cursor: canEdit ? 'text' : 'default'  // ★ 追加
                         }}
                         onFocus={(e) => {
                           e.target.style.outline = 'none';
@@ -3121,11 +3235,11 @@ const MandalaChart: React.FC = () => {
                           pointerEvents: 'none'
                         }}
                       >
-                        {cell.title.length}/22
+                        {cell.title.length}/30
                       </div>
                     </div>
 
-                    {cellChanged && (               
+                    {cellChanged && canEdit && (  // ★ canEdit条件を追加
                       <button
                         onClick={() => {
                           saveSmallCell(cell.id);
@@ -3266,7 +3380,11 @@ const MandalaChart: React.FC = () => {
             <div className="flex gap-3">
               {/* ★ 追加：キャンセルボタン */}
               <button
-                onClick={() => setPlConflictDialog(prev => ({ ...prev, isOpen: false }))}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPlConflictDialog(prev => ({ ...prev, isOpen: false }));
+                  setGoalInputModal({ ...goalInputModal, isOpen: false });
+                }}
                 className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md"
                 style={{
                   fontFamily: 'Inter',

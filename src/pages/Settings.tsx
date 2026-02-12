@@ -13,7 +13,7 @@ import type {
 } from "../types";
 
 const Settings: React.FC = () => {
-  const { user, updateUserSetup, updateUser  } = useAuth();
+  const { user, updateUserSetup, updateUser, logout  } = useAuth();
   const isNotNormalAccount = user?.role === "1" || user?.role === "2";
 
   // 初期設定データの状態管理
@@ -551,14 +551,11 @@ const Settings: React.FC = () => {
       if (response.responseStatus === 1) {
         alert("退会処理が完了しました。ご利用ありがとうございました。");
         
-        // すべての関連Cookieを削除
-        const cookies = ['authToken', 'userId', 'role', 'selectedUserId', 'userName', 'userImageUrl', 'userEmail'];
-        cookies.forEach(cookieName => {
-          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
-        });
+        // 通常のログアウト処理を使用（sessionExpiredフラグは立てない）
+        await logout();
         
-        // ログイン画面にリダイレクト
-        window.location.href = "/login";
+        // ログイン画面にリダイレクト（退会処理後であることを示すパラメータを追加）
+        window.location.href = "/login?reason=withdrawal";
       } else {
         throw new Error("退会処理に失敗しました");
       }

@@ -551,6 +551,7 @@ export class Service {
     /**
      * 予実管理(年次)画面 初期表示
      * 予実管理(年次)画面初期表示時使用
+     * saleSchema, grossProfitSchema, operatingProfitSchemaは12ヶ月分のデータをセットする
      * responseStatusは成功時に1を返却、失敗時は0を返却
      *
      * @param userId
@@ -572,6 +573,39 @@ export class Service {
             url: '/api/yearlyBudgetActual',
             query: {
                 'userId': userId,
+            },
+        });
+    }
+    /**
+     * 予実管理(月次)画面 初期表示
+     * 予実管理(月次)画面初期表示時使用
+     * responseStatusは成功時に1を返却、失敗時は0を返却
+     *
+     * @param userId
+     * @param year
+     * @param startMonth
+     * @returns any 取得成功
+     * @throws ApiError
+     */
+    public static getApiMonthlyBudgetActual(
+        userId: string,
+        year: number,
+        startMonth: string,
+    ): CancelablePromise<{
+        responseStatus?: number;
+        saleSchema?: Array<SaleSchema>;
+        grossProfitSchema?: Array<GrossProfitSchema>;
+        operatingProfitSchema?: Array<OperatingProfitSchema>;
+        largePLLinkedItemSchema?: Array<LargePLLinkedItemSchema>;
+        middlePLLinkedItemSchema?: Array<MiddlePLLinkedItemSchema>;
+    }> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/monthlyBudgetActual',
+            query: {
+                'userId': userId,
+                'year': year,
+                'startMonth': startMonth,
             },
         });
     }

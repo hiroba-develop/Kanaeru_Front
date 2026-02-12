@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from 'react-router-dom';
+import { usePermission } from "../hooks/usePermission";
 import { Save  } from "lucide-react";
 import plIcon from "../assets/icon_pl.png";
 import {
@@ -61,8 +63,9 @@ type EditableField =
 type PendingEdits = Record<number, Partial<YearlyData>>;
 
 const YearlyBudgetActual: React.FC = () => {
+  const navigate = useNavigate();
   const { selectedUser, userSetup, loadUserSetup } = useAuth();
-
+  const { canEdit } = usePermission();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -125,7 +128,7 @@ const YearlyBudgetActual: React.FC = () => {
   // グラフのY軸最大値を動的に計算（pendingEditsの値を考慮）
   const yAxisDomain = React.useMemo((): [number, number] => {
     if (targets.length === 0) {
-      return [0, 70000000];
+      return [0, 10000000]; // データがない場合は0〜1000万円
     }
     
     let maxValue = 0;
@@ -139,11 +142,31 @@ const YearlyBudgetActual: React.FC = () => {
       }
     });
     
-    // 最大値に50%の余裕を持たせる（マンダラ目標も表示できるように）
-    const upperBound = Math.ceil(maxValue * 1.5 / 1000000) * 1000000;
-    const finalBound = Math.max(upperBound, 10000000); // 最低でも1000万
+    // データがすべて0の場合
+    if (maxValue === 0) {
+      return [0, 10000000]; // 0〜1000万円
+    }
     
-    return [0, finalBound];
+    // 最大値に50%の余裕を持たせる（マンダラ目標も表示できるように）
+    const paddedMax = maxValue * 1.5;
+    
+    // 適切な単位で切り上げ
+    let upperBound;
+    if (paddedMax < 1000000) {
+      // 100万円未満: 10万円単位で切り上げ
+      upperBound = Math.ceil(paddedMax / 100000) * 100000;
+    } else if (paddedMax < 10000000) {
+      // 1000万円未満: 100万円単位で切り上げ
+      upperBound = Math.ceil(paddedMax / 1000000) * 1000000;
+    } else if (paddedMax < 100000000) {
+      // 1億円未満: 1000万円単位で切り上げ
+      upperBound = Math.ceil(paddedMax / 10000000) * 10000000;
+    } else {
+      // 1億円以上: 1億円単位で切り上げ
+      upperBound = Math.ceil(paddedMax / 100000000) * 100000000;
+    }
+    
+    return [0, upperBound];
   }, [chartData, chartType]);
 
   // データロード
@@ -178,102 +201,101 @@ const YearlyBudgetActual: React.FC = () => {
           }
         }
 
-        // APIからデータを取得
-        const response = await withErrorHandling(() =>
+        const fiscalYearStartMonth = currentUserSetup?.fiscalYearStartMonth || 4;
+        const fiscalYearStartYear = currentUserSetup?.fiscalYearStartYear || new Date().getFullYear();
+
+        // 年次データを取得（バックエンドで12ヶ月分を集計済み）
+        const yearlyResponse = await withErrorHandling(() =>
           Service.getApiYearlyBudgetActual(selectedUser.id)
         );
 
-        if (response.responseStatus === 1) {
-          // 年ごとにデータを集計
+        if (yearlyResponse.responseStatus === 1) {
+          // 年ごとにデータを集計するマップ
           const yearlyDataMap = new Map<number, YearlyData>();
 
-          // 売上データを集計
-          if (response.saleSchema) {
-            response.saleSchema.forEach((sale) => {
-              if (sale.year === undefined) return;
-              
-              if (!yearlyDataMap.has(sale.year)) {
-                yearlyDataMap.set(sale.year, {
-                  year: sale.year,
-                  revenueTarget: 0,
-                  revenueActual: 0,
-                  grossProfitTarget: 0,
-                  grossProfitActual: 0,
-                  operatingProfitTarget: 0,
-                  operatingProfitActual: 0,
-                  netWorthTarget: 0,
-                  netWorthActual: 0,
-                  phase: sale.year <= 3 ? "創業期" : sale.year <= 5 ? "転換期" : "成長期",
-                });
-              }
-              
-              const yearlyData = yearlyDataMap.get(sale.year)!;
-              yearlyData.revenueTarget += sale.saleTarget || 0;
-              yearlyData.revenueActual += sale.saleResult || 0;
+          // 10年分の年度を初期化
+          for (let i = 0; i < 10; i++) {
+            const fiscalYear = fiscalYearStartYear + i;
+            yearlyDataMap.set(fiscalYear, {
+              year: fiscalYear,
+              revenueTarget: 0,
+              revenueActual: 0,
+              grossProfitTarget: 0,
+              grossProfitActual: 0,
+              operatingProfitTarget: 0,
+              operatingProfitActual: 0,
+              netWorthTarget: 0,
+              netWorthActual: 0,
+              phase: i < 3 ? "創業期" : i < 5 ? "転換期" : "成長期",
             });
           }
 
-          // 粗利益データを集計
-          if (response.grossProfitSchema) {
-            response.grossProfitSchema.forEach((grossProfit) => {
-              if (grossProfit.year === undefined) return;
+          // 売上データを年度ごとに集計
+          if (yearlyResponse.saleSchema) {
+            yearlyResponse.saleSchema.forEach((sale) => {
+              if (sale.year === undefined || sale.month === undefined) return;
               
-              if (!yearlyDataMap.has(grossProfit.year)) {
-                yearlyDataMap.set(grossProfit.year, {
-                  year: grossProfit.year,
-                  revenueTarget: 0,
-                  revenueActual: 0,
-                  grossProfitTarget: 0,
-                  grossProfitActual: 0,
-                  operatingProfitTarget: 0,
-                  operatingProfitActual: 0,
-                  netWorthTarget: 0,
-                  netWorthActual: 0,
-                  phase: grossProfit.year <= 3 ? "創業期" : grossProfit.year <= 5 ? "転換期" : "成長期",
-                });
+              // この月がどの会計年度に属するかを計算
+              let fiscalYear;
+              if (sale.month >= fiscalYearStartMonth) {
+                fiscalYear = sale.year;
+              } else {
+                fiscalYear = sale.year - 1;
               }
               
-              const yearlyData = yearlyDataMap.get(grossProfit.year)!;
-              yearlyData.grossProfitTarget += grossProfit.grossProfitTarget || 0;
-              yearlyData.grossProfitActual += grossProfit.grossProfitResult || 0;
+              const yearlyData = yearlyDataMap.get(fiscalYear);
+              if (yearlyData) {
+                yearlyData.revenueTarget += sale.saleTarget || 0;
+                yearlyData.revenueActual += sale.saleResult || 0;
+              }
             });
           }
 
-          // 営業利益データを集計
-          if (response.operatingProfitSchema) {
-            response.operatingProfitSchema.forEach((operatingProfit) => {
-              if (operatingProfit.year === undefined) return;
+          // 粗利益データを年度ごとに集計
+          if (yearlyResponse.grossProfitSchema) {
+            yearlyResponse.grossProfitSchema.forEach((grossProfit) => {
+              if (grossProfit.year === undefined || grossProfit.month === undefined) return;
               
-              if (!yearlyDataMap.has(operatingProfit.year)) {
-                yearlyDataMap.set(operatingProfit.year, {
-                  year: operatingProfit.year,
-                  revenueTarget: 0,
-                  revenueActual: 0,
-                  grossProfitTarget: 0,
-                  grossProfitActual: 0,
-                  operatingProfitTarget: 0,
-                  operatingProfitActual: 0,
-                  netWorthTarget: 0,
-                  netWorthActual: 0,
-                  phase: operatingProfit.year <= 3 ? "創業期" : operatingProfit.year <= 5 ? "転換期" : "成長期",
-                });
+              // この月がどの会計年度に属するかを計算
+              let fiscalYear;
+              if (grossProfit.month >= fiscalYearStartMonth) {
+                fiscalYear = grossProfit.year;
+              } else {
+                fiscalYear = grossProfit.year - 1;
               }
               
-              const yearlyData = yearlyDataMap.get(operatingProfit.year)!;
-              yearlyData.operatingProfitTarget += operatingProfit.operatingProfitTarget || 0;
-              yearlyData.operatingProfitActual += operatingProfit.operatingProfitResult || 0;
+              const yearlyData = yearlyDataMap.get(fiscalYear);
+              if (yearlyData) {
+                yearlyData.grossProfitTarget += grossProfit.grossProfitTarget || 0;
+                yearlyData.grossProfitActual += grossProfit.grossProfitResult || 0;
+              }
             });
           }
 
+          // 営業利益データを年度ごとに集計
+          if (yearlyResponse.operatingProfitSchema) {
+            yearlyResponse.operatingProfitSchema.forEach((operatingProfit) => {
+              if (operatingProfit.year === undefined || operatingProfit.month === undefined) return;
+              
+              // この月がどの会計年度に属するかを計算
+              let fiscalYear;
+              if (operatingProfit.month >= fiscalYearStartMonth) {
+                fiscalYear = operatingProfit.year;
+              } else {
+                fiscalYear = operatingProfit.year - 1;
+              }
+              
+              const yearlyData = yearlyDataMap.get(fiscalYear);
+              if (yearlyData) {
+                yearlyData.operatingProfitTarget += operatingProfit.operatingProfitTarget || 0;
+                yearlyData.operatingProfitActual += operatingProfit.operatingProfitResult || 0;
+              }
+            });
+          }
 
           // データロード部分で、yearを絶対年に変換
           const yearlyTargets = Array.from(yearlyDataMap.values())
-          .sort((a, b) => a.year - b.year)
-          .map((target, index) => ({
-            ...target,
-            year: (currentUserSetup?.fiscalYearStartYear || 2025) + index  // 絶対年に変換
-          }));
-
+            .sort((a, b) => a.year - b.year);
 
           // マンダラ連動のPL計画があれば純資産データを追加
           const plPlan = loadPlPlan();
@@ -308,8 +330,8 @@ const YearlyBudgetActual: React.FC = () => {
           };
 
           // 大目標から目標を抽出
-          if (response.largePLLinkedItemSchema) {
-            response.largePLLinkedItemSchema.forEach((item: LargePLLinkedItemSchema) => {
+          if (yearlyResponse.largePLLinkedItemSchema) {
+            yearlyResponse.largePLLinkedItemSchema.forEach((item: LargePLLinkedItemSchema) => {
               if (item.goal_type && item.target_year !== undefined && item.target_amount !== undefined) {
                 const metric = goalTypeToMetric(item.goal_type);
                 if (metric) {
@@ -324,8 +346,8 @@ const YearlyBudgetActual: React.FC = () => {
           }
 
           // 中目標から目標を抽出
-          if (response.middlePLLinkedItemSchema) {
-            response.middlePLLinkedItemSchema.forEach((item: MiddlePLLinkedItemSchema) => {
+          if (yearlyResponse.middlePLLinkedItemSchema) {
+            yearlyResponse.middlePLLinkedItemSchema.forEach((item: MiddlePLLinkedItemSchema) => {
               if (item.goal_type && item.target_year !== undefined && item.target_amount !== undefined) {
                 const metric = goalTypeToMetric(item.goal_type);
                 if (metric) {
@@ -340,6 +362,7 @@ const YearlyBudgetActual: React.FC = () => {
           }
 
           setMandalaGoals(goals);
+          
         } else {
           console.warn('APIレスポンスステータスが1ではありません');
           setError("データの取得に失敗しました");
@@ -364,6 +387,27 @@ const YearlyBudgetActual: React.FC = () => {
     targetValue: number;
     metric: 'revenue' | 'grossProfit' | 'operatingProfit';
   }[]>([]);
+
+  // ★ 追加：マンダラ更新確認ダイアログの状態
+  const [mandalaUpdateDialog, setMandalaUpdateDialog] = useState<{
+    isOpen: boolean;
+    message: string;
+    fiscalYear: number;
+    goalType: 'revenue' | 'grossProfit' | 'operatingProfit';
+    yearlyTotal: number;
+    existingAmount: number;
+    onConfirm: () => void;
+    onCancel: () => void;
+  }>({
+    isOpen: false,
+    message: '',
+    fiscalYear: 0,
+    goalType: 'revenue',
+    yearlyTotal: 0,
+    existingAmount: 0,
+    onConfirm: () => {},
+    onCancel: () => {}
+  });
 
   useEffect(() => {
     const handlePlPlanUpdate = () => {
@@ -492,37 +536,28 @@ const YearlyBudgetActual: React.FC = () => {
             netWorthActual: edits.netWorthActual ?? currentData.netWorthActual,
           };
   
-          // pl_actual_v1に保存（マンダラ連動のため）
           const existingActualIndex = plActual!.yearly.findIndex((a) => a.year === year);
           if (existingActualIndex >= 0) {
             plActual!.yearly[existingActualIndex] = updatedActual;
           } else {
             plActual!.yearly.push(updatedActual);
           }
-          // マンダラ連動
           const result = onYearlyActualUpdate(year, updatedActual);
           mandalaUpdated = true;
         }
       });
   
-      // API呼び出し処理
+      // ★★★ ここから先を修正 ★★★
+      // API呼び出し処理の前にマンダラチェック
       if (!selectedUser) {
         throw new Error("ユーザー情報が取得できませんでした");
       }
-
-      // userSetupが読み込まれていない場合は読み込む
+  
       let currentUserSetup = userSetup;
       if (!currentUserSetup) {
         await loadUserSetup();
-        // loadUserSetup後、userSetupが更新されるまで少し待つ
-        // 注意: この方法は理想的ではないが、useEffectの依存配列でuserSetupが更新されるのを待つ
         await new Promise(resolve => setTimeout(resolve, 100));
-        // 再度userSetupを取得（useAuthから）
-        // ただし、この時点ではまだ更新されていない可能性があるため、
-        // 直接APIから取得する方が確実
-        const { Service } = await import("../api/services/Service");
-        const { withErrorHandling: withErrorHandlingForSetup } = await import("../utils/apiErrorHandler");
-        const setupResponse = await withErrorHandlingForSetup(() => 
+        const setupResponse = await withErrorHandling(() => 
           Service.getApiSettingUser(selectedUser.id)
         );
         if (setupResponse.responseStatus === 1 && setupResponse.settingSchema) {
@@ -532,132 +567,34 @@ const YearlyBudgetActual: React.FC = () => {
           } as any;
         }
       }
-
-      // 事業開始年月を取得（userSetupから取得、デフォルトは4月）
+  
       const fiscalYearStartMonth = currentUserSetup?.fiscalYearStartMonth || 4;
-
-      const apiUpdatePromises: Promise<void>[] = [];
-
-      // pendingEditsをループして、変更があった項目を判別してAPIを呼び出す
-      Object.entries(pendingEdits).forEach(([yearStr, edits]) => {
+  
+      // ★★★ マンダラチェックを先に実行（目標値の変更がある場合のみ） ★★★
+      let shouldProceed = true;
+      
+      for (const [yearStr, edits] of Object.entries(pendingEdits)) {
         const year = parseInt(yearStr, 10);
         const currentData = targets.find((t) => t.year === year);
-        if (!currentData) return;
-
-        // 年次データの月を計算（事業開始年月に基づく）
-        // FY2025の場合、事業開始年月が2025年2月なら、2025年2月に送信
-        const dataYear = year;
-        const dataMonth = fiscalYearStartMonth;
-
-        // 売上項目の変更をチェック
-        const hasSaleChange =
-          edits.revenueTarget !== undefined || edits.revenueActual !== undefined;
-
-        if (hasSaleChange) {
-          // 年次データを事業開始年月に基づいて送信
-          const revenueTarget = edits.revenueTarget ?? currentData.revenueTarget;
-          const revenueActual = edits.revenueActual ?? currentData.revenueActual;
-
-          const saleSchema: SaleSchema = {
-            userId: selectedUser.id,
-            year: dataYear,
-            month: dataMonth,
-            saleTarget: revenueTarget,
-            saleResult: revenueActual,
-          };
-
-          apiUpdatePromises.push(
-            withErrorHandling(() => Service.putApiSaleUpdate(saleSchema)).then(
-              (response) => {
-                if (response.responseStatus !== 1) {
-                  throw new Error(`売上更新に失敗しました（${year}年）`);
-                }
-              }
-            )
-          );
-        }
-
-        // 粗利益項目の変更をチェック
-        const hasGrossProfitChange =
+        if (!currentData) continue;
+  
+        // 目標値の変更をチェック
+        const hasTargetChange = 
+          edits.revenueTarget !== undefined ||
           edits.grossProfitTarget !== undefined ||
-          edits.grossProfitActual !== undefined;
-
-        if (hasGrossProfitChange) {
-          const grossProfitTarget =
-            edits.grossProfitTarget ?? currentData.grossProfitTarget;
-          const grossProfitActual =
-            edits.grossProfitActual ?? currentData.grossProfitActual;
-
-          const grossProfitSchema: GrossProfitSchema = {
-            userId: selectedUser.id,
-            year: dataYear,
-            month: dataMonth,
-            grossProfitTarget: grossProfitTarget,
-            grossProfitResult: grossProfitActual,
-          };
-
-          apiUpdatePromises.push(
-            withErrorHandling(() =>
-              Service.putApiGrossProfitUpdate(grossProfitSchema)
-            ).then((response) => {
-              if (response.responseStatus !== 1) {
-                throw new Error(`粗利益更新に失敗しました（${year}年）`);
-              }
-            })
-          );
-        }
-
-        // 営業利益項目の変更をチェック
-        const hasOperatingProfitChange =
-          edits.operatingProfitTarget !== undefined ||
-          edits.operatingProfitActual !== undefined;
-
-        if (hasOperatingProfitChange) {
-          const operatingProfitTarget =
-            edits.operatingProfitTarget ?? currentData.operatingProfitTarget;
-          const operatingProfitActual =
-            edits.operatingProfitActual ?? currentData.operatingProfitActual;
-
-          const operatingProfitSchema: OperatingProfitSchema = {
-            userId: selectedUser.id,
-            year: dataYear,
-            month: dataMonth,
-            operatingProfitTarget: operatingProfitTarget,
-            operatingProfitResult: operatingProfitActual,
-          };
-
-          apiUpdatePromises.push(
-            withErrorHandling(() =>
-              Service.putApiOperatingProfitUpdate(operatingProfitSchema)
-            ).then((response) => {
-              if (response.responseStatus !== 1) {
-                throw new Error(`営業利益更新に失敗しました（${year}年）`);
-              }
-            })
-          );
-        }
-      });
-
-      // 全てのAPI呼び出しを実行
-      if (apiUpdatePromises.length > 0) {
-        await Promise.all(apiUpdatePromises);
-      }
-
-      // マンダラチャートの目標金額も更新する
-      let mandalaGoalUpdated = false;
-      try {
-        
+          edits.operatingProfitTarget !== undefined;
+  
+        if (!hasTargetChange) continue;
+  
         // マンダラチャートデータを取得
         const mandalaResponse = await withErrorHandling(() =>
           Service.getApiMandalaCharts(selectedUser.id)
         );
-
+  
         if (mandalaResponse.responseStatus === 1 && mandalaResponse.charts) {
           const activeChart = mandalaResponse.charts.find(chart => chart.is_active === true);
           
           if (activeChart) {
-            
-            // ★ 追加: 中目標データも取得
             const allMiddleGoals: any[] = [];
             if (activeChart.large_goals) {
               for (const largeGoal of activeChart.large_goals) {
@@ -673,198 +610,429 @@ const YearlyBudgetActual: React.FC = () => {
                 }
               }
             }
-            
-            // 目標金額が変更された項目をループ
-            for (const [yearStr, edits] of Object.entries(pendingEdits)) {
-              const year = parseInt(yearStr, 10);
+  
+            // 各メトリックごとにチェック
+            const metricsToCheck: Array<{
+              metric: 'revenue' | 'grossProfit' | 'operatingProfit';
+              editValue: number | undefined;
+              goalType: number;
+            }> = [
+              { metric: 'revenue', editValue: edits.revenueTarget, goalType: 2 },
+              { metric: 'grossProfit', editValue: edits.grossProfitTarget, goalType: 3 },
+              { metric: 'operatingProfit', editValue: edits.operatingProfitTarget, goalType: 4 }
+            ];
+  
+            for (const { metric, editValue, goalType } of metricsToCheck) {
+              if (editValue === undefined) continue;
+  
+              const largeGoals = activeChart.large_goals?.filter(
+                (lg: any) => lg.goal_type === goalType && lg.target_year === year
+              ) || [];
               
-              // 売上目標の変更をチェック
-              if (edits.revenueTarget !== undefined) {
+              const middleGoals = allMiddleGoals.filter(
+                (mg: any) => mg.goal_type === goalType && mg.target_year === year
+              );
+              
+              const allGoals = [...largeGoals, ...middleGoals];
+              
+              if (allGoals.length === 0) continue;
+  
+              const allAmountsSame = allGoals.every(goal => goal.target_amount === editValue);
+              
+              if (!allAmountsSame) {
+                // ★ 金額が異なる場合は確認ダイアログを表示
+                const metricLabel = 
+                  metric === 'revenue' ? '売上' :
+                  metric === 'grossProfit' ? '粗利益' : '営業利益';
                 
-                // 同じ年度・goal_typeの大目標をすべて取得
-                const largeGoals = activeChart.large_goals?.filter(
-                  (lg: any) => lg.goal_type === 2 && lg.target_year === year
-                ) || [];
-                
-                // 同じ年度・goal_typeの中目標をすべて取得
-                const middleGoals = allMiddleGoals.filter(
-                  (mg: any) => mg.goal_type === 2 && mg.target_year === year
-                );
-                
-                
-                let updated = false;
-                
-                // すべての大目標を更新
-                for (const largeGoal of largeGoals) {
-                  if (largeGoal?.large_goal_id) {
-                    let updatedGoalTitle = largeGoal.goal_title || '';
-                    const newAmountText = formatAmountToText(edits.revenueTarget);
-                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
-                    
-                    const updateResponse = await withErrorHandling(() =>
-                      Service.putApiLargeGoalsUpdate(largeGoal.large_goal_id!, {
-                        target_amount: edits.revenueTarget,
-                        goal_title: updatedGoalTitle,
-                      })
-                    );
-                    updated = true;
+                const formatAmount = (amount: number): string => {
+                  const manyen = Math.round(amount / 10000);
+                  if (manyen >= 10000) {
+                    const oku = Math.floor(manyen / 10000);
+                    const man = manyen % 10000;
+                    if (man === 0) {
+                      return `${oku}億円`;
+                    } else {
+                      return `${oku}億${man}万円`;
+                    }
                   }
-                }
+                  return `${manyen}万円`;
+                };
+  
+                const hierarchyInfoList: string[] = [];
                 
-                // すべての中目標を更新
-                for (const middleGoal of middleGoals) {
-                  if (middleGoal?.middle_goal_id) {
-                    let updatedGoalTitle = middleGoal.goal_title || '';
-                    const newAmountText = formatAmountToText(edits.revenueTarget);
-                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
-                    
-                    const updateResponse = await withErrorHandling(() =>
-                      Service.putApiMiddleGoalsUpdate(middleGoal.middle_goal_id!, {
-                        target_amount: edits.revenueTarget,
-                        goal_title: updatedGoalTitle,
-                      })
-                    );
-                    updated = true;
+                allGoals.forEach(goal => {
+                  if ('large_goal_id' in goal && goal.large_goal_id) {
+                    hierarchyInfoList.push(`大目標：${goal.goal_title || ''}`);
+                  } else if ('middle_goal_id' in goal && goal.middle_goal_id) {
+                    const middleGoalData = allMiddleGoals.find(mg => mg.middle_goal_id === goal.middle_goal_id);
+                    if (middleGoalData && activeChart.large_goals) {
+                      const parentLargeGoal = activeChart.large_goals.find((lg: any) => 
+                        lg.large_goal_id === middleGoalData.large_goal_id
+                      );
+                      if (parentLargeGoal?.goal_title) {
+                        hierarchyInfoList.push(`大目標：${parentLargeGoal.goal_title}\n∟中目標：${goal.goal_title || ''}`);
+                      } else {
+                        hierarchyInfoList.push(`中目標：${goal.goal_title || ''}`);
+                      }
+                    }
                   }
-                }
+                });
                 
-                if (updated) {
-                  mandalaGoalUpdated = true;
-                } 
-              }
-
-              // 粗利益目標の変更をチェック
-              if (edits.grossProfitTarget !== undefined) {
+                const hierarchyInfo = hierarchyInfoList.join('\n\n');
+                const newAmountDisplay = formatAmount(editValue);
+                const existingAmount = allGoals[0].target_amount || 0;
                 
-                // 同じ年度・goal_typeの大目標をすべて取得
-                const largeGoals = activeChart.large_goals?.filter(
-                  (lg: any) => lg.goal_type === 3 && lg.target_year === year
-                ) || [];
-                
-                // 同じ年度・goal_typeの中目標をすべて取得
-                const middleGoals = allMiddleGoals.filter(
-                  (mg: any) => mg.goal_type === 3 && mg.target_year === year
-                );
-                
-                let updated = false;
-                
-                // すべての大目標を更新
-                for (const largeGoal of largeGoals) {
-                  if (largeGoal?.large_goal_id) {
-                    let updatedGoalTitle = largeGoal.goal_title || '';
-                    const newAmountText = formatAmountToText(edits.grossProfitTarget);
-                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
-                    
-                    const updateResponse = await withErrorHandling(() =>
-                      Service.putApiLargeGoalsUpdate(largeGoal.large_goal_id!, {
-                        target_amount: edits.grossProfitTarget,
-                        goal_title: updatedGoalTitle,
-                      })
-                    );
-                    updated = true;
+                const message = `FY${year}の${metricLabel}目標と\nマンダラの目標金額に差分があります。\n\n${hierarchyInfo}\n\nマンダラの目標金額を${newAmountDisplay}に更新しますか？`;
+  
+                // ★ Promiseで確認ダイアログの結果を待つ
+                const userChoice = await new Promise<'confirm' | 'cancel' | 'skip'>((resolve) => {
+                  setMandalaUpdateDialog({
+                    isOpen: true,
+                    message: message,
+                    fiscalYear: year,
+                    goalType: metric,
+                    yearlyTotal: editValue,
+                    existingAmount: existingAmount,
+                    onConfirm: () => {
+                      setMandalaUpdateDialog(prev => ({ ...prev, isOpen: false }));
+                      resolve('confirm');
+                    },
+                    onCancel: () => {
+                      setMandalaUpdateDialog(prev => ({ ...prev, isOpen: false }));
+                      resolve('skip');
+                    }
+                  });
+  
+                  // ★ ダイアログが閉じられた時のキャンセル処理
+                  const checkDialogClosed = setInterval(() => {
+                    if (!document.querySelector('[data-mandala-dialog]')) {
+                      clearInterval(checkDialogClosed);
+                    }
+                  }, 100);
+                });
+  
+                if (userChoice === 'confirm') {
+                  // ★ 「更新する」が選択された場合：マンダラを更新
+                  for (const goal of allGoals) {
+                    const formatAmountToText = (amount: number): string => {
+                      const manyen = Math.round(amount / 10000);
+                      if (manyen >= 10000) {
+                        const oku = Math.floor(manyen / 10000);
+                        const man = manyen % 10000;
+                        if (man === 0) {
+                          return `${oku}億`;
+                        } else {
+                          return `${oku}億${man}万`;
+                        }
+                      }
+                      return `${manyen}万`;
+                    };
+  
+                    if ('large_goal_id' in goal && goal.large_goal_id) {
+                      let updatedGoalTitle = goal.goal_title || '';
+                      const newAmountText = formatAmountToText(editValue);
+                      const cleanAmountText = newAmountText.replace(/,/g, '');
+                      updatedGoalTitle = updatedGoalTitle.replace(
+                        /(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万|(\d+(?:,\d+)*)億|(\d+(?:,\d+)*)万/,
+                        cleanAmountText
+                      );
+                      
+                      await withErrorHandling(() =>
+                        Service.putApiLargeGoalsUpdate(goal.large_goal_id!, {
+                          target_amount: editValue,
+                          goal_title: updatedGoalTitle,
+                        })
+                      );
+                    } else if ('middle_goal_id' in goal && goal.middle_goal_id) {
+                      let updatedGoalTitle = goal.goal_title || '';
+                      const newAmountText = formatAmountToText(editValue);
+                      const cleanAmountText = newAmountText.replace(/,/g, '');
+                      updatedGoalTitle = updatedGoalTitle.replace(
+                        /(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万|(\d+(?:,\d+)*)億|(\d+(?:,\d+)*)万/,
+                        cleanAmountText
+                      );
+                      
+                      await withErrorHandling(() =>
+                        Service.putApiMiddleGoalsUpdate(goal.middle_goal_id!, {
+                          target_amount: editValue,
+                          goal_title: updatedGoalTitle,
+                        })
+                      );
+                    }
                   }
+                } else if (userChoice === 'skip') {
+                  // ★ 「いいえ」が選択された場合：マンダラは更新しない（PLのみ保存）
+                  // 何もしない（後続の処理でPLは保存される）
                 }
-                
-                // すべての中目標を更新
-                for (const middleGoal of middleGoals) {
-                  if (middleGoal?.middle_goal_id) {
-                    let updatedGoalTitle = middleGoal.goal_title || '';
-                    const newAmountText = formatAmountToText(edits.grossProfitTarget);
-                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
-                    
-                    const updateResponse = await withErrorHandling(() =>
-                      Service.putApiMiddleGoalsUpdate(middleGoal.middle_goal_id!, {
-                        target_amount: edits.grossProfitTarget,
-                        goal_title: updatedGoalTitle,
-                      })
-                    );
-                    updated = true;
-                  }
-                }
-                
-                if (updated) {
-                  mandalaGoalUpdated = true;
-                } 
-              }
-
-              // 営業利益目標の変更をチェック
-              if (edits.operatingProfitTarget !== undefined) {
-                
-                // 同じ年度・goal_typeの大目標をすべて取得
-                const largeGoals = activeChart.large_goals?.filter(
-                  (lg: any) => lg.goal_type === 4 && lg.target_year === year
-                ) || [];
-                
-                // 同じ年度・goal_typeの中目標をすべて取得
-                const middleGoals = allMiddleGoals.filter(
-                  (mg: any) => mg.goal_type === 4 && mg.target_year === year
-                );
-                
-                let updated = false;
-                
-                // すべての大目標を更新
-                for (const largeGoal of largeGoals) {
-                  if (largeGoal?.large_goal_id) {
-                    let updatedGoalTitle = largeGoal.goal_title || '';
-                    const newAmountText = formatAmountToText(edits.operatingProfitTarget);
-                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
-                    
-                    const updateResponse = await withErrorHandling(() =>
-                      Service.putApiLargeGoalsUpdate(largeGoal.large_goal_id!, {
-                        target_amount: edits.operatingProfitTarget,
-                        goal_title: updatedGoalTitle,
-                      })
-                    );
-                    updated = true;
-                  }
-                }
-                
-                // すべての中目標を更新
-                for (const middleGoal of middleGoals) {
-                  if (middleGoal?.middle_goal_id) {
-                    let updatedGoalTitle = middleGoal.goal_title || '';
-                    const newAmountText = formatAmountToText(edits.operatingProfitTarget);
-                    updatedGoalTitle = updatedGoalTitle.replace(/(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万円?|(\d+(?:,\d+)*)億円?|(\d+(?:,\d+)*)万円?/, `${newAmountText}円`);
-                    
-                    const updateResponse = await withErrorHandling(() =>
-                      Service.putApiMiddleGoalsUpdate(middleGoal.middle_goal_id!, {
-                        target_amount: edits.operatingProfitTarget,
-                        goal_title: updatedGoalTitle,
-                      })
-                    );
-                    updated = true;
-                  }
-                }
-                
-                if (updated) {
-                  mandalaGoalUpdated = true;
-                } 
+                // ★ キャンセルボタンを押した場合は、外側のtry-catchでキャッチされる
               }
             }
-          } else {
-            console.warn('アクティブなマンダラチャートが見つかりませんでした');
           }
-        } else {
-          console.warn('マンダラチャート取得に失敗または charts が空です');
         }
-      } catch (mandalaError) {
-        console.error("マンダラチャート更新エラー:", mandalaError);
-        // マンダラチャートの更新に失敗してもPL更新は成功として扱う
       }
-
-      // マンダラ連動のため、plActualの更新処理は残す
+  
+      // ★★★ ここから通常のAPI呼び出し処理（変更なし） ★★★
+      const apiUpdatePromises: Promise<void>[] = [];
+  
+      for (const [yearStr, edits] of Object.entries(pendingEdits)) {
+        const year = parseInt(yearStr, 10);
+        const currentData = targets.find((t) => t.year === year);
+        if (!currentData) continue;
+  
+        const dataYear = year;
+        const dataMonth = fiscalYearStartMonth;
+  
+        const hasSaleChange = edits.revenueTarget !== undefined;
+  
+        if (hasSaleChange) {
+          const revenueTarget = edits.revenueTarget ?? currentData.revenueTarget;
+          
+          const existingResponse = await withErrorHandling(() =>
+            Service.getApiMonthlyBudgetActual(selectedUser.id, dataYear, dataMonth.toString())
+          );
+          const existingActual = existingResponse.saleSchema?.find(
+            (s: any) => s.year === dataYear && s.month === dataMonth
+          )?.saleResult || 0;
+  
+          const saleSchema: SaleSchema = {
+            userId: selectedUser.id,
+            year: dataYear,
+            month: dataMonth,
+            saleTarget: revenueTarget,
+            saleResult: existingActual,
+          };
+  
+          apiUpdatePromises.push(
+            withErrorHandling(() => Service.putApiSaleUpdate(saleSchema)).then(
+              (response) => {
+                if (response.responseStatus !== 1) {
+                  throw new Error(`売上更新に失敗しました（${year}年）`);
+                }
+              }
+            )
+          );
+        }
+  
+        const hasGrossProfitChange = edits.grossProfitTarget !== undefined;
+  
+        if (hasGrossProfitChange) {
+          const grossProfitTarget = edits.grossProfitTarget ?? currentData.grossProfitTarget;
+          
+          const existingResponse = await withErrorHandling(() =>
+            Service.getApiMonthlyBudgetActual(selectedUser.id, dataYear, dataMonth.toString())
+          );
+          const existingActual = existingResponse.grossProfitSchema?.find(
+            (g: any) => g.year === dataYear && g.month === dataMonth
+          )?.grossProfitResult || 0;
+  
+          const grossProfitSchema: GrossProfitSchema = {
+            userId: selectedUser.id,
+            year: dataYear,
+            month: dataMonth,
+            grossProfitTarget: grossProfitTarget,
+            grossProfitResult: existingActual,
+          };
+  
+          apiUpdatePromises.push(
+            withErrorHandling(() =>
+              Service.putApiGrossProfitUpdate(grossProfitSchema)
+            ).then((response) => {
+              if (response.responseStatus !== 1) {
+                throw new Error(`粗利益更新に失敗しました（${year}年）`);
+              }
+            })
+          );
+        }
+  
+        const hasOperatingProfitChange = edits.operatingProfitTarget !== undefined;
+  
+        if (hasOperatingProfitChange) {
+          const operatingProfitTarget = edits.operatingProfitTarget ?? currentData.operatingProfitTarget;
+          
+          const existingResponse = await withErrorHandling(() =>
+            Service.getApiMonthlyBudgetActual(selectedUser.id, dataYear, dataMonth.toString())
+          );
+          const existingActual = existingResponse.operatingProfitSchema?.find(
+            (o: any) => o.year === dataYear && o.month === dataMonth
+          )?.operatingProfitResult || 0;
+  
+          const operatingProfitSchema: OperatingProfitSchema = {
+            userId: selectedUser.id,
+            year: dataYear,
+            month: dataMonth,
+            operatingProfitTarget: operatingProfitTarget,
+            operatingProfitResult: existingActual,
+          };
+  
+          apiUpdatePromises.push(
+            withErrorHandling(() =>
+              Service.putApiOperatingProfitUpdate(operatingProfitSchema)
+            ).then((response) => {
+              if (response.responseStatus !== 1) {
+                throw new Error(`営業利益更新に失敗しました（${year}年）`);
+              }
+            })
+          );
+        }
+      }
+  
+      if (apiUpdatePromises.length > 0) {
+        await Promise.all(apiUpdatePromises);
+      }
+  
+      // 年次データを月次に12分割してDBに登録
+      const monthlyUpdatePromises: Promise<void>[] = [];
+  
+      for (const [yearStr, edits] of Object.entries(pendingEdits)) {
+        const year = parseInt(yearStr, 10);
+        const currentData = targets.find((t) => t.year === year);
+        if (!currentData) continue;
+  
+        const hasSaleChange = edits.revenueTarget !== undefined;
+        if (hasSaleChange) {
+          const yearlyTarget = edits.revenueTarget ?? currentData.revenueTarget;
+          
+          const monthlyTarget = Math.floor(yearlyTarget / 12);
+          const remainderTarget = yearlyTarget - (monthlyTarget * 12);
+          
+          for (let i = 0; i < 12; i++) {
+            const monthIndex = (fiscalYearStartMonth - 1 + i) % 12;
+            const month = monthIndex + 1;
+            
+            let actualYear = year;
+            if (month < fiscalYearStartMonth) {
+              actualYear = year + 1;
+            }
+            
+            const adjustedTarget = i === 0 ? monthlyTarget + remainderTarget : monthlyTarget;
+            
+            monthlyUpdatePromises.push(
+              (async () => {
+                const existingResponse = await withErrorHandling(() =>
+                  Service.getApiMonthlyBudgetActual(selectedUser.id, actualYear, month.toString())
+                );
+                const existingActual = existingResponse.saleSchema?.find(
+                  (s: any) => s.year === actualYear && s.month === month
+                )?.saleResult || 0;
+                
+                const saleSchema: SaleSchema = {
+                  userId: selectedUser.id,
+                  year: actualYear,
+                  month: month,
+                  saleTarget: adjustedTarget,
+                  saleResult: existingActual,
+                };
+                
+                const response = await withErrorHandling(() => Service.putApiSaleUpdate(saleSchema));
+                if (response.responseStatus !== 1) {
+                  console.error(`月次売上更新に失敗（${actualYear}年${month}月）`);
+                }
+              })()
+            );
+          }
+        }
+  
+        const hasGrossProfitChange = edits.grossProfitTarget !== undefined;
+        if (hasGrossProfitChange) {
+          const yearlyTarget = edits.grossProfitTarget ?? currentData.grossProfitTarget;
+          
+          const monthlyTarget = Math.floor(yearlyTarget / 12);
+          const remainderTarget = yearlyTarget - (monthlyTarget * 12);
+          
+          for (let i = 0; i < 12; i++) {
+            const monthIndex = (fiscalYearStartMonth - 1 + i) % 12;
+            const month = monthIndex + 1;
+            
+            let actualYear = year;
+            if (month < fiscalYearStartMonth) {
+              actualYear = year + 1;
+            }
+            
+            const adjustedTarget = i === 0 ? monthlyTarget + remainderTarget : monthlyTarget;
+            
+            monthlyUpdatePromises.push(
+              (async () => {
+                const existingResponse = await withErrorHandling(() =>
+                  Service.getApiMonthlyBudgetActual(selectedUser.id, actualYear, month.toString())
+                );
+                const existingActual = existingResponse.grossProfitSchema?.find(
+                  (g: any) => g.year === actualYear && g.month === month
+                )?.grossProfitResult || 0;
+                
+                const grossProfitSchema: GrossProfitSchema = {
+                  userId: selectedUser.id,
+                  year: actualYear,
+                  month: month,
+                  grossProfitTarget: adjustedTarget,
+                  grossProfitResult: existingActual,
+                };
+                
+                const response = await withErrorHandling(() => Service.putApiGrossProfitUpdate(grossProfitSchema));
+                if (response.responseStatus !== 1) {
+                  console.error(`月次粗利益更新に失敗（${actualYear}年${month}月）`);
+                }
+              })()
+            );
+          }
+        }
+  
+        const hasOperatingProfitChange = edits.operatingProfitTarget !== undefined;
+        if (hasOperatingProfitChange) {
+          const yearlyTarget = edits.operatingProfitTarget ?? currentData.operatingProfitTarget;
+          
+          const monthlyTarget = Math.floor(yearlyTarget / 12);
+          const remainderTarget = yearlyTarget - (monthlyTarget * 12);
+          
+          for (let i = 0; i < 12; i++) {
+            const monthIndex = (fiscalYearStartMonth - 1 + i) % 12;
+            const month = monthIndex + 1;
+            
+            let actualYear = year;
+            if (month < fiscalYearStartMonth) {
+              actualYear = year + 1;
+            }
+            
+            const adjustedTarget = i === 0 ? monthlyTarget + remainderTarget : monthlyTarget;
+            
+            monthlyUpdatePromises.push(
+              (async () => {
+                const existingResponse = await withErrorHandling(() =>
+                  Service.getApiMonthlyBudgetActual(selectedUser.id, actualYear, month.toString())
+                );
+                const existingActual = existingResponse.operatingProfitSchema?.find(
+                  (o: any) => o.year === actualYear && o.month === month
+                )?.operatingProfitResult || 0;
+                
+                const operatingProfitSchema: OperatingProfitSchema = {
+                  userId: selectedUser.id,
+                  year: actualYear,
+                  month: month,
+                  operatingProfitTarget: adjustedTarget,
+                  operatingProfitResult: existingActual,
+                };
+                
+                const response = await withErrorHandling(() => Service.putApiOperatingProfitUpdate(operatingProfitSchema));
+                if (response.responseStatus !== 1) {
+                  console.error(`月次営業利益更新に失敗（${actualYear}年${month}月）`);
+                }
+              })()
+            );
+          }
+        }
+      }
+  
+      if (monthlyUpdatePromises.length > 0) {
+        await Promise.all(monthlyUpdatePromises);
+      }
+  
       if (mandalaUpdated) {
         savePlActual(plActual);
       }
   
-      // pendingEditsをクリア
       setPendingEdits({});
   
-      if (mandalaGoalUpdated) {
-        alert("保存しました!\n\n✨マンダラの目標も自動更新されました!");
-      } else {
-        alert("保存しました!");
-      }
+      alert("保存しました!");
     } catch (err) {
       console.error("保存エラー:", err);
       alert("保存に失敗しました");
@@ -922,25 +1090,47 @@ const YearlyBudgetActual: React.FC = () => {
       !!pendingEdits[data.year] &&
       (pendingEdits[data.year] as any)[field] !== undefined;
   
+    // ★ 追加：実績フィールドかどうかを判定
+    const isActualField = field === 'revenueActual' || 
+                          field === 'grossProfitActual' || 
+                          field === 'operatingProfitActual' || 
+                          field === 'netWorthActual';
+  
+    // ★ 修正：実績フィールドは編集不可
+    const canEditCell = isEditable && canEdit && !isActualField;
+  
+    // ★ 追加：ツールチップメッセージ
+    const getTooltipMessage = () => {
+      if (isActualField) {
+        return "実績入力は月次PL画面から更新できます";
+      }
+      if (canEditCell) {
+        return "クリックで編集";
+      }
+      return "";
+    };
+  
     return (
       <td
         key={data.year}
         className={`py-2 sm:py-3 px-1 sm:px-2 text-right text-xs sm:text-sm whitespace-nowrap ${
-          isEditable
+          canEditCell
             ? "cursor-pointer hover:bg-primary/5 transition-colors"
+            : isActualField
+            ? "cursor-text opacity-75"
             : ""
-        } ${isEditable && hasEditForCell ? "bg-primary/5" : ""}`}
+        } ${canEditCell && hasEditForCell ? "bg-primary/5" : ""}`}
         onClick={() =>
-          isEditable && handleCellDoubleClick(data.year, field as EditableField)
+          canEditCell && handleCellDoubleClick(data.year, field as EditableField)
         }
-        title={isEditable ? "クリックで編集" : ""}
+        title={getTooltipMessage()}
         style={{
           position: 'relative',
           width: 'auto',
           minWidth: '80px'
         }}
       >
-        {isEditable && editingCell === key ? (
+        {canEditCell && editingCell === key ? (
           <input
             type="number"
             defaultValue={displayValue}
@@ -991,7 +1181,7 @@ const YearlyBudgetActual: React.FC = () => {
             onFocus={(e) => e.target.select()}
           />
         ) : displayValue > 0 ? (
-          Number(displayValue).toLocaleString('ja-JP')  // ← ここを修正！
+          Number(displayValue).toLocaleString('ja-JP')
         ) : (
           "-"
         )}
@@ -1007,7 +1197,6 @@ const YearlyBudgetActual: React.FC = () => {
     const targetValue = data[targetField] as number;
     const actualValue = data[actualField] as number;
     
-    // ★ 修正: 目標が未設定の場合は「-」を表示
     if (targetValue <= 0) {
       return (
         <td
@@ -1056,9 +1245,8 @@ const YearlyBudgetActual: React.FC = () => {
 
   return (
     <div className="space-y-6 px-4 sm:px-6 lg:px-8 py-6" style={{ maxWidth: '100vw', overflow: 'hidden' }}>
-      {/* タイトル */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
           <img
             src={plIcon}
             alt="PL"
@@ -1071,11 +1259,24 @@ const YearlyBudgetActual: React.FC = () => {
             }}
           />
           <h1 className="text-xl sm:text-2xl font-bold text-text">年次PL</h1>
+          
+          <div className="flex items-center space-x-2 bg-gray-100 rounded-full p-1">
+            <button
+              className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-white shadow-sm font-semibold text-xs sm:text-sm text-primary"
+            >
+              年次
+            </button>
+            <button
+              onClick={() => navigate("/monthlyBudgetActual")}
+              className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm text-gray-600 hover:text-gray-900 hover:bg-white/50 transition-colors"
+            >
+              月次
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="w-full" style={{ maxWidth: '100%' }}>
-        {/* 推移予測グラフ */}
         <div 
           className={`card w-full transition-all duration-700 ${
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-8'
@@ -1146,10 +1347,9 @@ const YearlyBudgetActual: React.FC = () => {
                   }}
                   domain={yAxisDomain}
                   tickFormatter={(value) => {
-                    const manyen = value / 10000; // 円を万円に変換
+                    const manyen = value / 10000;
                     
                     if (isMobile) {
-                      // モバイル: 億・千万・万の単位で表示
                       if (manyen >= 10000) {
                         const oku = manyen / 10000;
                         return `${oku.toFixed(1)}億`;
@@ -1160,7 +1360,6 @@ const YearlyBudgetActual: React.FC = () => {
                       return `${manyen.toFixed(0)}万`;
                     }
                     
-                    // PC: 億円表記に対応
                     if (manyen >= 10000) {
                       const oku = Math.floor(manyen / 10000);
                       const man = manyen % 10000;
@@ -1176,7 +1375,6 @@ const YearlyBudgetActual: React.FC = () => {
                 />
                 <Tooltip
                   formatter={(value: number, name: string, props: any) => {
-                    // マンダラ目標の期限情報を取得
                     const currentYear = props.payload.year;
                     const goalInfo = mandalaGoals.find(
                       goal => goal.metric === chartType && goal.year === currentYear
@@ -1189,7 +1387,6 @@ const YearlyBudgetActual: React.FC = () => {
                   }}
                     labelFormatter={(label) => {
                       const year = label;
-                      // ★事業年度期間を表示
                       const startMonth = userSetup?.fiscalYearStartMonth || 4;
                       const startYear = year;
                       const endYear = year + 1;
@@ -1208,7 +1405,6 @@ const YearlyBudgetActual: React.FC = () => {
                   }}
                 />
                 
-                {/* 売上 */}
                 <Line
                   type="monotone"
                   dataKey="revenueTarget"
@@ -1228,7 +1424,6 @@ const YearlyBudgetActual: React.FC = () => {
                   hide={chartType !== "revenue"}
                 />
                 
-                {/* 粗利益 */}
                 <Line
                   type="monotone"
                   dataKey="grossProfitTarget"
@@ -1248,7 +1443,6 @@ const YearlyBudgetActual: React.FC = () => {
                   hide={chartType !== "grossProfit"}
                 />
                 
-                {/* 営業利益 */}
                 <Line
                   type="monotone"
                   dataKey="operatingProfitTarget"
@@ -1268,11 +1462,9 @@ const YearlyBudgetActual: React.FC = () => {
                   hide={chartType !== "operatingProfit"}
                 />
 
-              {/* マンダラ目標の参照線 - 全ての目標を表示 */}
               {mandalaGoals
               .filter(goal => goal.metric === chartType)
               .map((goal, index) => {
-                // ★ 事業開始年度から相対年を計算
                 const fiscalYearStartYear = userSetup?.fiscalYearStartYear || 2025;
                 const relativeYear = goal.year - fiscalYearStartYear + 1;
                 
@@ -1286,7 +1478,7 @@ const YearlyBudgetActual: React.FC = () => {
                   >
                     {!isMobile && (
                       <Label
-                        value={`${relativeYear}年目期限`}  // ★ 変更
+                        value={`${relativeYear}年目期限`}
                         position="top"
                         fill="#0051BB"
                         fontSize={12}
@@ -1301,7 +1493,6 @@ const YearlyBudgetActual: React.FC = () => {
         </div>
       </div>
 
-      {/* 10年間の目標設定テーブル */}
       <div className="w-full">
       <div 
         className={`card w-full transition-all duration-700 ${
@@ -1345,7 +1536,7 @@ const YearlyBudgetActual: React.FC = () => {
             </div>
           </div>
 
-          {hasChanges() && (
+          {hasChanges() && canEdit && (
             <div className="my-4 text-left">
               <button
                 onClick={handleSave}
@@ -1427,7 +1618,7 @@ const YearlyBudgetActual: React.FC = () => {
                         renderRateCell(
                           data,
                           item.targetField as keyof YearlyData,
-                          item.actualField as keyof YearlyData
+                          item.actualField as keyof YearlyData,
                         )
                       )}
                     </tr>
@@ -1438,6 +1629,102 @@ const YearlyBudgetActual: React.FC = () => {
           </div>
         </div>
       </div>
+    {/* ★ 追加：マンダラ更新確認ダイアログ */}
+      {mandalaUpdateDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="fixed inset-0 bg-black opacity-50"
+            onClick={(e) => {
+              e.stopPropagation();
+              // ★ 背景クリックでは閉じない（明示的にボタンを押させる）
+            }}
+          />
+          
+          <div
+            className="relative bg-white rounded-3xl shadow-xl mx-4 p-6"
+            data-mandala-dialog
+            style={{
+              width: '100%',
+              maxWidth: '480px',
+            }}
+          >
+            <h3
+              style={{
+                fontFamily: 'Inter',
+                fontWeight: 600,
+                fontSize: 'clamp(16px, 4vw, 20px)',
+                color: '#F59E0B',
+                marginBottom: '16px'
+              }}
+            >
+              ⚠️ マンダラ目標金額の更新確認
+            </h3>
+            
+            <p
+              style={{
+                fontFamily: 'Inter',
+                fontWeight: 400,
+                fontSize: 'clamp(13px, 3vw, 15px)',
+                color: '#1E1F1F',
+                lineHeight: '1.6',
+                whiteSpace: 'pre-wrap',
+                marginBottom: '24px'
+              }}
+            >
+              {mandalaUpdateDialog.message}
+            </p>
+            
+            <div className="flex gap-3">
+              {/* キャンセルボタン */}
+              <button
+                onClick={() => {
+                  setMandalaUpdateDialog(prev => ({ ...prev, isOpen: false }));
+                  setIsSaving(false);
+                  // ★ 保存処理全体を中止
+                }}
+                className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md"
+                style={{
+                  fontFamily: 'Inter',
+                  fontSize: 'clamp(14px, 3.5vw, 16px)',
+                  color: '#9CA3AF',
+                  background: '#F9FAFB',
+                  border: '1px solid #E5E7EB'
+                }}
+              >
+                キャンセル
+              </button>
+              
+              {/* いいえボタン */}
+              <button
+                onClick={mandalaUpdateDialog.onCancel}
+                className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md"
+                style={{
+                  fontFamily: 'Inter',
+                  fontSize: 'clamp(14px, 3.5vw, 16px)',
+                  color: '#6B7280',
+                  background: '#F3F4F6',
+                }}
+              >
+                いいえ
+              </button>
+              
+              {/* 更新するボタン */}
+              <button
+                onClick={mandalaUpdateDialog.onConfirm}
+                className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg"
+                style={{
+                  fontFamily: 'Inter',
+                  fontSize: 'clamp(14px, 3.5vw, 16px)',
+                  color: '#FFFFFF',
+                  background: '#13AE67',
+                }}
+              >
+                更新する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

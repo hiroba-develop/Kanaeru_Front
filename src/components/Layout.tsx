@@ -259,7 +259,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       roleRequired: ["0", "1", "2"],
     },
     {
-      name: "年次PL",
+      name: "損益管理",
       href: "/yearlyBudgetActual",
       icon: PLIcon,
       disabled: false,
@@ -379,9 +379,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     <select
                       value={selectedUser?.id || ""}
                       onChange={(e) => {
-                        switchUser(e.target.value);
-                        if (sidebarOpen) {
-                          setSidebarOpen(false);
+                        if (e.target.value) {  // ★ 追加：空文字の場合は何もしない
+                          switchUser(e.target.value);
+                          if (sidebarOpen) {
+                            setSidebarOpen(false);
+                          }
                         }
                       }}
                       className="w-full text-xs xl:text-sm border border-gray-300 rounded px-2 py-1.5 pr-8 appearance-none bg-white focus:outline-none focus:ring-1 focus:ring-primary"
@@ -393,6 +395,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                         backgroundSize: "16px",
                       }}
                     >
+                      {/* ★ 追加：デフォルトオプション */}
+                      <option value="" disabled>
+                        ▼選択してください
+                      </option>
                       {managedUsers.map((managedUser) => (
                         <option key={managedUser.id} value={managedUser.id}>
                           {managedUser.name}
@@ -452,43 +458,51 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
             <nav className="flex-1 overflow-y-auto" style={{ overflowX: 'hidden' }}>
               <div className="space-y-1 xl:space-y-2 pl-6 xl:pl-9 pr-3 pt-3">
-                {filteredClientNavigation.map((item) => {
-                  const isActive = location.pathname === item.href;
+              {filteredClientNavigation.map((item) => {
+                const isActive = location.pathname === item.href;
+                
+                // ★ 追加：管理者でユーザー未選択の場合は非活性
+                const isDisabledByNoSelection = 
+                  userRole !== null && 
+                  ["1", "2"].includes(userRole) && 
+                  !selectedUser;
 
-                  if (item.disabled) {
-                    return (
-                      <div
-                        key={item.name}
-                        className="flex items-start py-2 xl:py-2.5 rounded-lg cursor-not-allowed opacity-50"
-                      >
-                        <item.icon className="h-4 w-4 xl:h-5 xl:w-5 mr-2 xl:mr-3 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div className="flex flex-col">
-                          <span className="text-xs xl:text-sm text-gray-400">
-                            {item.name}
-                          </span>
+                if (item.disabled || isDisabledByNoSelection) {
+                  return (
+                    <div
+                      key={item.name}
+                      className="flex items-start py-2 xl:py-2.5 rounded-lg opacity-50"
+                    >
+                      <item.icon className="h-4 w-4 xl:h-5 xl:w-5 mr-2 xl:mr-3 text-gray-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="text-xs xl:text-sm text-gray-400">
+                          {item.name}
+                        </span>
+                        {item.disabled && (
                           <span className="text-[10px] xl:text-xs text-red-500 font-small">
                             COMING SOON
                           </span>
-                        </div>
+                        )}
                       </div>
-                    );
-                  }
-
-                  return (
-                    <Link
-                      key={item.name}
-                      to={item.href}
-                      className={`flex items-center py-2 xl:py-2.5 rounded-none transition-colors -ml-6 xl:-ml-9 pl-6 xl:pl-9 -mr-3 pr-3 ${
-                        isActive
-                          ? "bg-white text-primary"
-                          : "text-gray-700 hover:bg-gray-100"
-                      }`}
-                    >
-                      <item.icon className="h-4 w-4 xl:h-5 xl:w-5 mr-4 flex-shrink-0" />
-                      <span className="text-xs xl:text-sm">{item.name}</span>
-                    </Link>
+                    </div>
                   );
-                })}
+                }
+
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.name === "kanaeruマンダラ" ? "/mandalaChart?level=large" : item.href}
+                    className={`flex items-center py-2 xl:py-2.5 rounded-none transition-colors -ml-6 xl:-ml-9 pl-6 xl:pl-9 -mr-3 pr-3 ${
+                      isActive
+                        ? "bg-white text-primary"
+                        : "text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    <item.icon className="h-4 w-4 xl:h-5 xl:w-5 mr-4 flex-shrink-0" />
+                    <span className="text-xs xl:text-sm">{item.name}</span>
+                  </Link>
+                );
+              })}
 
                 {filteredAdminNavigation.length > 0 && (
                   <hr className="border-gray-200 my-2" />
@@ -517,18 +531,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   }
 
                   return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    className={`flex items-center py-2 xl:py-2.5 rounded-none transition-colors -ml-6 xl:-ml-9 pl-6 xl:pl-9 -mr-3 pr-3 ${
-                      isActive
-                        ? "bg-white text-primary"
-                        : "text-gray-700 hover:bg-gray-100"
-                    }`}
-                  >
-                    <item.icon className="h-4 w-4 xl:h-5 xl:w-5 mr-4 flex-shrink-0" />
-                    <span className="text-xs xl:text-sm">{item.name}</span>
-                  </Link>
+                    <Link
+                      key={item.name}
+                      to={item.name === "kanaeruマンダラ" ? "/mandalaChart?level=large" : item.href}  // ★ 修正
+                      className={`flex items-center py-2 sm:py-2.5 rounded-none transition-colors -ml-6 sm:-ml-9 pl-6 sm:pl-9 -mr-3 pr-3 ${
+                        isActive
+                          ? "bg-white text-primary"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }`}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <item.icon className="h-4 w-4 sm:h-5 sm:w-5 mr-4 flex-shrink-0" />
+                      <span className="text-xs sm:text-sm">{item.name}</span>
+                    </Link>
                   );
                 })}
               </div>
@@ -655,9 +670,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       <select
                         value={selectedUser?.id || ""}
                         onChange={(e) => {
-                          switchUser(e.target.value);
-                          if (sidebarOpen) {
-                            setSidebarOpen(false);
+                          if (e.target.value) {  // ★ 追加：空文字の場合は何もしない
+                            switchUser(e.target.value);
+                            if (sidebarOpen) {
+                              setSidebarOpen(false);
+                            }
                           }
                         }}
                         className="w-full text-xs sm:text-sm border border-gray-300 rounded px-2 py-1.5 pr-8 appearance-none bg-white focus:outline-none focus:ring-1 focus:ring-primary"
@@ -669,6 +686,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                           backgroundSize: "16px",
                         }}
                       >
+                        {/* ★ 追加：デフォルトオプション */}
+                        <option value="" disabled>
+                          ▼選択してください
+                        </option>
                         {managedUsers.map((managedUser) => (
                           <option key={managedUser.id} value={managedUser.id}>
                             {managedUser.name}
@@ -687,44 +708,52 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
               <nav className="flex-1 overflow-y-auto" style={{ overflowX: 'hidden' }}>
                 <div className="space-y-1 sm:space-y-2 pl-6 sm:pl-9 pr-3 pt-3">
-                  {filteredClientNavigation.map((item) => {
-                    const isActive = location.pathname === item.href;
+                {filteredClientNavigation.map((item) => {
+                  const isActive = location.pathname === item.href;
+                  
+                  // ★ 追加：管理者でユーザー未選択の場合は非活性
+                  const isDisabledByNoSelection = 
+                    userRole !== null && 
+                    ["1", "2"].includes(userRole) && 
+                    !selectedUser;
 
-                    if (item.disabled) {
-                      return (
-                        <div
-                          key={item.name}
-                          className="flex items-start py-2 sm:py-2.5 rounded-lg cursor-not-allowed opacity-50"
-                        >
-                          <item.icon className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 text-gray-400 mt-0.5 flex-shrink-0" />
-                          <div className="flex flex-col">
-                            <span className="text-xs sm:text-sm text-gray-400">
-                              {item.name}
-                            </span>
+                  if (item.disabled || isDisabledByNoSelection) {
+                    return (
+                      <div
+                        key={item.name}
+                        className="flex items-start py-2 sm:py-2.5 rounded-lg opacity-50"
+                      >
+                        <item.icon className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 text-gray-400 mt-0.5 flex-shrink-0" />
+                        <div className="flex flex-col">
+                          <span className="text-xs sm:text-sm text-gray-400">
+                            {item.name}
+                          </span>
+                          {item.disabled && (
                             <span className="text-[10px] sm:text-xs text-red-500 font-small">
                               COMING SOON
                             </span>
-                          </div>
+                          )}
                         </div>
-                      );
-                    }
-
-                    return (
-                      <Link
-                        key={item.name}
-                        to={item.href}
-                        className={`flex items-center py-2 sm:py-2.5 rounded-none transition-colors -ml-6 sm:-ml-9 pl-6 sm:pl-9 -mr-3 pr-3 ${
-                          isActive
-                            ? "bg-white text-primary"
-                            : "text-gray-700 hover:bg-gray-100"
-                        }`}
-                        onClick={() => setSidebarOpen(false)}
-                      >
-                        <item.icon className="h-4 w-4 sm:h-5 sm:w-5 mr-4 flex-shrink-0" />
-                        <span className="text-xs sm:text-sm">{item.name}</span>
-                      </Link>
+                      </div>
                     );
-                  })}
+                  }
+
+                  return (
+                    <Link
+                      key={item.name}
+                      to={item.name === "kanaeruマンダラ" ? "/mandalaChart?level=large" : item.href}
+                      className={`flex items-center py-2 sm:py-2.5 rounded-none transition-colors -ml-6 sm:-ml-9 pl-6 sm:pl-9 -mr-3 pr-3 ${
+                        isActive
+                          ? "bg-white text-primary"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }`}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <item.icon className="h-4 w-4 sm:h-5 sm:w-5 mr-4 flex-shrink-0" />
+                      <span className="text-xs sm:text-sm">{item.name}</span>
+                    </Link>
+                  );
+                })}
 
                   {filteredAdminNavigation.length > 0 && (
                     <hr className="border-gray-200 my-2" />

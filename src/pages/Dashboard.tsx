@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Service } from "../api/services/Service";
+import { withErrorHandling } from "../utils/apiErrorHandler";
 import complate_icon from "../assets/complate_icon.png";
 import plIcon from "../assets/icon_pl.png";
 import banner_1 from "../assets/banner/banner_1.png";
@@ -141,7 +142,7 @@ const Dashboard: React.FC = () => {
           }
         }
 
-        const response = await Service.getApiHome(selectedUser.id);
+        const response = await withErrorHandling(() => Service.getApiHome(selectedUser.id));
 
         if (response.responseStatus === 1) {
           // マンダラグリッドのデータを更新

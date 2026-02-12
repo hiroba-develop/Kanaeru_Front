@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Service } from "../api/services/Service";
+import { withErrorHandling } from "../utils/apiErrorHandler";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -167,7 +168,7 @@ const UserManagement: React.FC = () => {
     const fetchUsers = async () => {
       try {
         setIsLoading(true);
-        const response = await Service.getApiGetUsers();
+        const response = await withErrorHandling(() => Service.getApiGetUsers());
         
         if (response.responseStatus === 1 && response.userListSchema) {
           // userListSchemaとsettingListSchemaをuserIdでマッチング

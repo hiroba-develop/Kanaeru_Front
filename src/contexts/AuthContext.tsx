@@ -113,6 +113,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [managedUsers, setManagedUsers] = useState<AuthUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<AuthUser | null>(null);
+  
+  // ログアウト処理中フラグ（複数回実行を防ぐ）
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // セッション期限切れフラグをクリアする関数
   const clearSessionExpired = () => {
@@ -121,6 +124,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // 401エラー時に呼ばれるログアウト処理
   const handleSessionExpired = async () => {
+    // すでにログアウト処理中の場合は何もしない
+    if (isLoggingOut) {
+      return;
+    }
+    
+    setIsLoggingOut(true);
+    
     console.warn('セッションが期限切れになりました。');
     setSessionExpired(true);
     
@@ -131,7 +141,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     
     // Cookieをクリア
     deleteCookie("userId");
-    deleteCookie("userEmail"); // ← 追加
+    deleteCookie("userEmail");
     deleteCookie("role");
     deleteCookie("selectedUserId");
     deleteCookie("authToken");
@@ -139,6 +149,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     deleteCookie("userImageUrl");
     
     setShouldRedirectToLogin(true);
+    
+    // 処理完了後、フラグをリセット（次回のログアウトのため）
+    setTimeout(() => {
+      setIsLoggingOut(false);
+    }, 1000);
   };
 
   // エラーハンドラーのコールバックを設定
@@ -185,12 +200,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const fetchManagedUsers = async () => {
           try {
             const { Service } = await import("../api/services/Service");
-            const response = await Service.getApiGetUsers();
+            const { withErrorHandling } = await import("../utils/apiErrorHandler");
+            const response = await withErrorHandling(() => Service.getApiGetUsers());
             
             if (response.responseStatus === 1 && response.userListSchema) {
               // UserListSchemaをAuthUserに変換
               const managedUsersList: AuthUser[] = response.userListSchema
-                .filter((u) => u.delFlg !== 1) // 削除フラグが立っていないユーザーのみ
+                .filter((u) => u.delFlg !== 1)
                 .map((u) => ({
                   id: u.userId || "",
                   email: u.email || "",
@@ -204,24 +220,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               
               setManagedUsers(managedUsersList);
               
-              // selectedUserIdがCookieにあればそのユーザーを選択、なければ最初のユーザーを選択
-              const userToSelect = selectedUserId
-                ? managedUsersList.find((u) => u.id === selectedUserId) || managedUsersList[0]
-                : managedUsersList[0];
-              
-              if (userToSelect) {
-                setSelectedUser(userToSelect);
+              // ★ 修正：CookieにselectedUserIdがある場合のみ復元
+              if (selectedUserId) {
+                const userToSelect = managedUsersList.find((u) => u.id === selectedUserId);
+                if (userToSelect) {
+                  setSelectedUser(userToSelect);
+                } else {
+                  setSelectedUser(null);  // ★ 修正：nullに設定
+                }
               } else {
-                setSelectedUser(userToSet);
+                setSelectedUser(null);  // ★ 修正：nullに設定
               }
             } else {
               setManagedUsers([]);
-              setSelectedUser(userToSet);
+              setSelectedUser(null);  // ★ 修正：nullに設定
             }
           } catch (error) {
             console.error("ユーザー一覧取得エラー:", error);
             setManagedUsers([]);
-            setSelectedUser(userToSet);
+            setSelectedUser(null);  // ★ 修正：nullに設定
           } finally {
             setIsLoading(false);
           }
@@ -281,12 +298,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (role === "1" || role === "2") {
         try {
           const { Service } = await import("../api/services/Service");
-          const response = await Service.getApiGetUsers();
+          const { withErrorHandling } = await import("../utils/apiErrorHandler");
+          const response = await withErrorHandling(() => Service.getApiGetUsers());
           
           if (response.responseStatus === 1 && response.userListSchema) {
             // UserListSchemaをAuthUserに変換
             const managedUsersList: AuthUser[] = response.userListSchema
-              .filter((u) => u.delFlg !== 1) // 削除フラグが立っていないユーザーのみ
+              .filter((u) => u.delFlg !== 1)
               .map((u) => ({
                 id: u.userId || "",
                 email: u.email || "",
@@ -300,28 +318,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             
             setManagedUsers(managedUsersList);
             
-            // 最初のユーザーをselectedUserに設定（またはCookieから復元）
+            // ★ 修正：CookieにselectedUserIdがある場合のみ復元、ない場合はnull
             const selectedUserId = getCookie("selectedUserId");
-            const userToSelect = selectedUserId
-              ? managedUsersList.find((u) => u.id === selectedUserId) || managedUsersList[0]
-              : managedUsersList[0];
-            
-            if (userToSelect) {
-              setSelectedUser(userToSelect);
-              setCookie("selectedUserId", userToSelect.id);
+            if (selectedUserId) {
+              const userToSelect = managedUsersList.find((u) => u.id === selectedUserId);
+              if (userToSelect) {
+                setSelectedUser(userToSelect);
+              } else {
+                setSelectedUser(null);  // ★ 修正：nullに設定
+              }
             } else {
-              setSelectedUser(user);
+              setSelectedUser(null);  // ★ 修正：nullに設定
             }
           } else {
-            // ユーザー一覧取得に失敗した場合は、ログインしたユーザーを設定
             setManagedUsers([]);
-            setSelectedUser(user);
+            setSelectedUser(null);  // ★ 修正：nullに設定
           }
         } catch (error) {
           console.error("ユーザー一覧取得エラー:", error);
-          // エラーの場合もログインしたユーザーを設定
           setManagedUsers([]);
-          setSelectedUser(user);
+          setSelectedUser(null);  // ★ 修正：nullに設定
         }
       } else {
         // 一般ユーザーの場合

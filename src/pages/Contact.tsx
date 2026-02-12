@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Service } from "../api/services/Service";
+import { withErrorHandling } from "../utils/apiErrorHandler";
 import { useAuth } from "../contexts/AuthContext";
 
 interface ContactForm {
@@ -74,12 +75,12 @@ const Contact: React.FC = () => {
       setIsLoading(true);
 
       // API呼び出し
-      await Service.postApiContactsSend({
+      await withErrorHandling(() => Service.postApiContactsSend({
         title: formData.title,
         userName: formData.userName,
         email: formData.email,
         content: formData.content,
-      });
+      }));
 
       alert(
         "お問い合わせを受け付けました。\n" +

@@ -8,7 +8,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import YearlyBudgetActual from "./pages/YearlyBudgetActual";
-// import MonthlyBudgetActual from "./pages/MonthlyBudgetActual";
+import MonthlyBudgetActual from "./pages/MonthlyBudgetActual";
 // import Support from "./pages/Support";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
@@ -130,7 +130,7 @@ const AppContent: React.FC = () => {
           </ProtectedRoute>
         }
       />
-      {/* <Route
+      <Route
         path="/monthlyBudgetActual"
         element={
           <ProtectedRoute>
@@ -139,7 +139,7 @@ const AppContent: React.FC = () => {
             </Layout>
           </ProtectedRoute>
         }
-      /> */}
+      />
       {/* <Route
         path="/support"
         element={

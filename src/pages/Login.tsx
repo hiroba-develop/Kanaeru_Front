@@ -33,11 +33,22 @@ const Login: React.FC = () => {
 
   // セッション期限切れメッセージを表示
   React.useEffect(() => {
+    // URLクエリパラメータをチェック
+    const searchParams = new URLSearchParams(location.search);
+    const reason = searchParams.get('reason');
+    
+    // 退会処理後の場合はセッション期限切れメッセージを表示しない
+    if (reason === 'withdrawal') {
+      clearSessionExpired();
+      return;
+    }
+    
+    // セッション期限切れの場合のみメッセージを表示
     if (sessionExpired) {
-      setError("セッションの有効期限が切れました。再度ログインしてください。");
+      setError("セッションの有効期限が切れました。\n再度ログインしてください。");
       clearSessionExpired();
     }
-  }, [sessionExpired, clearSessionExpired]);
+  }, [sessionExpired, clearSessionExpired, location.search]);
 
   // パスワードをSHA-256でハッシュ化
   const sha256 = (text: string): string => {
@@ -157,7 +168,7 @@ const Login: React.FC = () => {
 
             {/* エラーメッセージ */}
             {error && (
-              <div className="text-center text-sm text-red-500">{error}</div>
+              <div className="text-center text-sm text-red-500 whitespace-pre-line">{error}</div>
             )}
 
             {/* メールログインフォーム */}

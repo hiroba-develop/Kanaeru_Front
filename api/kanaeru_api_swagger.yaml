@@ -705,6 +705,7 @@ paths:
       summary: 予実管理(年次)画面 初期表示
       description: |
         予実管理(年次)画面初期表示時使用
+        saleSchema, grossProfitSchema, operatingProfitSchemaは12ヶ月分のデータをセットする
         responseStatusは成功時に1を返却、失敗時は0を返却
       parameters:
         - name: userId
@@ -742,6 +743,63 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/MiddlePLLinkedItemSchema'
+
+  /api/monthlyBudgetActual:
+    get:
+      tags:
+        - 画面初期表示
+      summary: 予実管理(月次)画面 初期表示
+      description: |
+        予実管理(月次)画面初期表示時使用
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: startMonth
+          in: query
+          required: true
+          schema:
+            type: string
+            format: integer
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  saleSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SaleSchema'
+                  grossProfitSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GrossProfitSchema'
+                  operatingProfitSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OperatingProfitSchema'
+                  largePLLinkedItemSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LargePLLinkedItemSchema'
+                  middlePLLinkedItemSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MiddlePLLinkedItemSchema'
+
   /api/support:
     get:
       tags:

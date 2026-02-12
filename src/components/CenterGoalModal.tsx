@@ -259,7 +259,7 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
               fontSize: 'clamp(14px, 3.5vw, 16px)',
               background: isSubmitDisabled ? '#E5E7EB' : '#13AE67',
               color: isSubmitDisabled ? '#9CA3AF' : '#FFFFFF',
-              cursor: isSubmitDisabled ? 'not-allowed' : 'pointer'
+              cursor: isSubmitDisabled ? 'default' : 'pointer'
             }}
           >
             保存する

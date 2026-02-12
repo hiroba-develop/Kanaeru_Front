@@ -194,14 +194,6 @@ const checkCollisionWithBox = (
   cardSide: "left" | "right",
   containerSize: { width: number; height: number }
 ): boolean => {
-  console.log("🔍 当たり判定チェック:", {
-    cardSide,
-    cardPosition,
-    containerSize,
-    box: { BOX_WIDTH, BOX_HEIGHT, BOX_TOP },
-    message: "カードがドラッグされました - 現在は常にtrueを返しています",
-  });
-
   return true;
 };
 
@@ -477,14 +469,7 @@ const SwipeChoiceComponent: React.FC<SwipeChoiceComponentProps> = ({
 
   const handleChoice = useCallback(
     (choice: Choice, fromCard: "left" | "right") => {
-      console.log("🚀 handleChoice開始:", {
-        choice,
-        fromCard,
-        answeredRef: answeredRef.current,
-      });
-
       if (answeredRef.current) {
-        console.log("❌ handleChoice: 既に回答済みのため無視");
         return;
       }
       answeredRef.current = true;
@@ -492,7 +477,6 @@ const SwipeChoiceComponent: React.FC<SwipeChoiceComponentProps> = ({
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
-        console.log("⏹️ タイマー停止");
       }
       setIsActive(false);
       setIsAnimating(true);
@@ -568,13 +552,6 @@ const SwipeChoiceComponent: React.FC<SwipeChoiceComponentProps> = ({
   );
 
   const handleDragEnd = useCallback(() => {
-    console.log("🎯 handleDragEnd開始:", {
-      isDragging,
-      isActive,
-      touchStart: !!touchStart,
-      answeredRef: answeredRef.current,
-    });
-
     if (!isDragging || !isActive || !touchStart || answeredRef.current) {
       return;
     }
