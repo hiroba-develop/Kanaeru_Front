@@ -1330,44 +1330,7 @@ const MandalaChart: React.FC = () => {
       console.error('月次PL更新エラー:', error);
     }
   };
-
-
-  // handleGoalSubmitの前に追加
-
-  const saveGoalWithPlUpdate = async (
-    cellId: string,
-    cellType: 'center' | 'large' | 'middle' | 'small',
-    goal: string,
-    goalType: 'revenue' | 'grossProfit' | 'operatingProfit',
-    finalTargetYear: number,
-    finalTargetAmount: number,
-    targetYearIndex?: number, 
-    amountInManYen?: number 
-  ) => {
-    if (cellType === 'large') {
-      await saveLargeGoal(cellId, goal, goalType, finalTargetYear, finalTargetAmount, true);
-    } else if (cellType === 'middle' && selectedLargeCellId) {
-      await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, true);
-    }
-  };
-
-  const saveGoalWithoutPlUpdate = async (
-    cellId: string,
-    cellType: 'center' | 'large' | 'middle' | 'small',
-    goal: string,
-    goalType: 'revenue' | 'grossProfit' | 'operatingProfit',
-    finalTargetYear: number,
-    finalTargetAmount: number,
-    targetYearIndex?: number,
-    amountInManYen?: number
-  ) => {
-    if (cellType === 'large') {
-      await saveLargeGoal(cellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
-    } else if (cellType === 'middle' && selectedLargeCellId) {
-      await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
-    }
-  };
-
+  
   const saveLargeGoal = async (
     cellId: string,
     goal: string,
@@ -1382,11 +1345,12 @@ const MandalaChart: React.FC = () => {
     const chartId = currentChartIdRef.current;
     const position = getLargePosition(cellId);
     const goalTypeNumber = convertGoalTypeToNumber(goalType);
-
+  
     if (!chartId || !selectedUser?.id) return;
-
+  
     try {
       if (largeGoalId) {
+        
         const response = await Service.putApiLargeGoalsUpdate(
           largeGoalId,
           {
@@ -1400,14 +1364,12 @@ const MandalaChart: React.FC = () => {
         );
         
         if (response.responseStatus === 1) {
-          
           setLargeCells((prev) =>
             prev.map((c) =>
               c.id === cellId ? { ...c, title: goal, plMetric, largeGoalId: largeGoalId } : c
             )
           );
           
-          // ★ updatePlがtrueの場合のみ年次PLを更新
           if (updatePl) {
             await updateYearlyPL(goalType, finalTargetYear, finalTargetAmount);
             
@@ -1422,7 +1384,7 @@ const MandalaChart: React.FC = () => {
             }));
           }
         } else {
-          console.error('❌ 大目標の更新に失敗しました');
+          console.error('❌ 大目標の更新に失敗しました:', response);
         }
       } else {
         const response = await Service.postApiLargeGoalsCreate(
@@ -1477,30 +1439,37 @@ const MandalaChart: React.FC = () => {
     goalType: 'revenue' | 'grossProfit' | 'operatingProfit',
     finalTargetYear: number,
     finalTargetAmount: number,
-    updatePl: boolean
+    updatePl: boolean,
+    updatedMiddleChartsParam?: typeof middleCharts  // ★ 追加：オプショナルパラメータ
   ) => {
+    
     const plMetric = goalType;
-    const middleChart = middleCharts[selectedLargeCellId];
+    // ★ 修正：updatedMiddleChartsParamがあればそれを使用
+    const middleChartsToUse = updatedMiddleChartsParam || middleCharts;
+    const middleChart = middleChartsToUse[selectedLargeCellId];
+    
     if (!middleChart) {
       console.error('middleChartが見つかりません:', selectedLargeCellId);
       return;
     }
-
+  
     const currentMiddleCell = middleChart.cells.find(c => c.id === cellId);
     const middleGoalId = currentMiddleCell?.middleGoalId;
     const largeCell = largeCells.find(c => c.id === selectedLargeCellId);
     const largeGoalId = largeCell?.largeGoalId;
-
+  
+  
     if (!largeGoalId) {
       console.error('largeGoalIdが見つかりません');
       return;
     }
-
+  
     const position = getMiddlePosition(cellId);
     const goalTypeNumber = convertGoalTypeToNumber(goalType);
-
+  
     try {
       if (middleGoalId) {
+        
         const response = await Service.putApiMiddleGoalsUpdate(
           middleGoalId,
           {
@@ -1511,7 +1480,7 @@ const MandalaChart: React.FC = () => {
             target_amount: finalTargetAmount,
           }
         );
-
+  
         if (response.responseStatus === 1) {
           
           setMiddleCharts((prev) => ({
@@ -1812,6 +1781,85 @@ const MandalaChart: React.FC = () => {
       
       const finalTargetYear = currentUserSetup.fiscalYearStartYear + targetYearIndex - 1;
       const finalTargetAmount = amountInManYen * 10000;
+      // ★★★ ここから追加 ★★★
+      if (!selectedUser?.id) {
+        console.error('selectedUserが存在しません');
+        return;
+      }
+      
+      const mandalaResponse = await withErrorHandling(() =>
+        Service.getApiMandalaCharts(selectedUser.id)
+      );
+
+      let updatedMiddleCharts = { ...middleCharts };
+
+      if (mandalaResponse.responseStatus === 1 && mandalaResponse.charts) {
+        const activeChart = mandalaResponse.charts.find(chart => chart.is_active === true);
+        
+        if (activeChart && activeChart.large_goals) {
+          const convertGoalTypeToPlMetric = (goalType?: number): PlMetric | undefined => {
+            switch (goalType) {
+              case 2: return 'revenue';
+              case 3: return 'grossProfit';
+              case 4: return 'operatingProfit';
+              default: return undefined;
+            }
+          };
+
+          for (const largeGoal of activeChart.large_goals) {
+            if (largeGoal.large_goal_id) {
+              try {
+                const middleResponse = await Service.getApiMiddleGoals(largeGoal.large_goal_id);
+                
+                if (middleResponse.responseStatus === 1 && middleResponse.middle_goals) {
+                  const sortedMiddleGoals = [...middleResponse.middle_goals].sort((a, b) => {
+                    const posA = a.position || 0;
+                    const posB = b.position || 0;
+                    return posA - posB;
+                  });
+          
+                  // ★ 修正：positionを直接使用
+                  const position = (largeGoal as any).position;
+                  
+                  if (position && position >= 1 && position <= 8) {
+                    const largeCellId = `large_${position}`;
+                    
+                    const newCells: MandalaCell[] = Array.from({ length: 8 }, (_, i) => ({
+                      id: `${largeCellId}_middle_${i + 1}`,
+                      title: "",
+                      achievement: 0,
+                      status: "not_started" as const,
+                    }));
+          
+                    sortedMiddleGoals.forEach((middleGoal) => {
+                      const mgPosition = middleGoal.position;
+                      if (mgPosition && mgPosition >= 1 && mgPosition <= 8) {
+                        const index = mgPosition - 1;
+                        newCells[index] = {
+                          id: `${largeCellId}_middle_${mgPosition}`,
+                          title: middleGoal.goal_title || '',
+                          achievement: Math.round(middleGoal.progress ?? 0),
+                          status: (middleGoal.progress ?? 0) >= 100 ? "achieved" : (middleGoal.progress ?? 0) > 0 ? "in_progress" : "not_started",
+                          plMetric: convertGoalTypeToPlMetric(middleGoal.goal_type),
+                          middleGoalId: middleGoal.middle_goal_id,
+                        };
+                      }
+                    });
+          
+                    updatedMiddleCharts[largeCellId] = {
+                      centerId: largeCellId,
+                      centerTitle: largeGoal.goal_title || '',
+                      cells: newCells,
+                    };
+                  }
+                }
+              } catch (err) {
+                console.error('中目標取得エラー:', err);
+              }
+            }
+          }
+        }
+      }
       
       // ★ 修正：マンダラチャートのデータから直接重複をチェック
       let conflicts: Array<{
@@ -1864,7 +1912,7 @@ const MandalaChart: React.FC = () => {
       });
       
       // 中目標から重複をチェック
-      Object.values(middleCharts).forEach(chart => {
+      Object.values(updatedMiddleCharts).forEach(chart => {
         chart.cells.forEach(cell => {
           // 現在編集中のセルの判定
           const isCurrentCell = cellType === 'middle' && cell.id === cellId;
@@ -1940,7 +1988,7 @@ const MandalaChart: React.FC = () => {
             hierarchyInfoList.push(`大目標：${conflict.existingCellTitle}`);
           } else {
             // 中目標の場合、親の大目標を探す
-            Object.entries(middleCharts).forEach(([largeCellId, chart]) => {
+            Object.entries(updatedMiddleCharts).forEach(([largeCellId, chart]) => {
               const middleCell = chart.cells.find(cell => cell.id === conflict.existingCellId);
               if (middleCell) {
                 const largeCell = largeCells.find(c => c.id === largeCellId);
@@ -1968,8 +2016,10 @@ const MandalaChart: React.FC = () => {
             setPlConflictDialog(prev => ({ ...prev, isOpen: false }));
             
             try {
+              
               // すべての既存目標を上書き
               for (const conflict of conflicts) {
+                
                 if (conflict.existingCellType === 'large') {
                   await saveLargeGoal(
                     conflict.existingCellId, 
@@ -1977,12 +2027,13 @@ const MandalaChart: React.FC = () => {
                     goalType, 
                     finalTargetYear, 
                     finalTargetAmount, 
-                    true // PLも更新
+                    true
                   );
                 } else if (conflict.existingCellType === 'middle') {
+                  
                   let parentLargeCellId: string | undefined;
                   
-                  Object.entries(middleCharts).forEach(([largeCellId, chart]) => {
+                  Object.entries(updatedMiddleCharts).forEach(([largeCellId, chart]) => {
                     const middleCell = chart.cells.find(cell => cell.id === conflict.existingCellId);
                     if (middleCell) {
                       parentLargeCellId = largeCellId;
@@ -1997,14 +2048,16 @@ const MandalaChart: React.FC = () => {
                       goalType,
                       finalTargetYear,
                       finalTargetAmount,
-                      true // PLも更新
+                      true,
+                      updatedMiddleCharts  // ★ 追加：最新の中目標データを渡す
                     );
+                  } else {
+                    console.error('❌ 親の大目標が見つかりません:', conflict.existingCellId);
                   }
                 }
               }
               
               // 新しい場所（現在編集中のセル）にも目標を登録
-              // 既存目標のいずれかと現在編集中のセルが異なる場合のみ登録
               const isNewLocation = !conflicts.some(c => c.existingCellId === cellId);
               if (isNewLocation) {
                 if (cellType === 'large') {
@@ -2013,6 +2066,122 @@ const MandalaChart: React.FC = () => {
                   await saveMiddleGoal(cellId, selectedLargeCellId, goal, goalType, finalTargetYear, finalTargetAmount, false);
                 }
               }
+              
+              // ★★★ 追加：更新後に画面を再読み込み ★★★
+              if (!selectedUser?.id) return;
+              
+              // 大目標を再取得
+              const mandalaResponse = await withErrorHandling(() =>
+                Service.getApiMandalaCharts(selectedUser.id)
+              );
+              
+              if (mandalaResponse.responseStatus === 1 && mandalaResponse.charts) {
+                const activeChart = mandalaResponse.charts.find(chart => chart.is_active === true);
+                
+                if (activeChart && activeChart.large_goals) {
+                  const convertGoalTypeToPlMetric = (goalType?: number): PlMetric | undefined => {
+                    switch (goalType) {
+                      case 2: return 'revenue';
+                      case 3: return 'grossProfit';
+                      case 4: return 'operatingProfit';
+                      default: return undefined;
+                    }
+                  };
+                  
+                  const sortedLargeGoals = [...activeChart.large_goals].sort((a, b) => {
+                    const posA = (a as any).position || 0;
+                    const posB = (b as any).position || 0;
+                    return posA - posB;
+                  });
+                  
+                  // largeCellsを更新
+                  setLargeCells((prev) => {
+                    const updated = prev.map((cell, index) => {
+                      const position = index + 1;
+                      const largeGoal = sortedLargeGoals.find((lg: any) => lg.position === position);
+                      
+                      if (largeGoal) {
+                        const middleProgressArray = new Array(8).fill(0);
+                        if (largeGoal.middle_goals_progress && Array.isArray(largeGoal.middle_goals_progress)) {
+                          largeGoal.middle_goals_progress.forEach((mg: any) => {
+                            if (mg.position >= 1 && mg.position <= 8) {
+                              middleProgressArray[mg.position - 1] = mg.progress || 0;
+                            }
+                          });
+                        }
+                        
+                        return {
+                          ...cell,
+                          title: largeGoal.goal_title || '',
+                          largeGoalId: largeGoal.large_goal_id,
+                          plMetric: convertGoalTypeToPlMetric(largeGoal.goal_type),
+                          middleGoalsProgress: middleProgressArray,
+                        };
+                      }
+                      return cell;
+                    });
+                    return updated;
+                  });
+                  
+                  // ★ 中目標も再取得して更新
+                  const newMiddleCharts: typeof middleCharts = { ...middleCharts };
+                  
+                  for (const largeGoal of activeChart.large_goals) {
+                    if (largeGoal.large_goal_id) {
+                      try {
+                        const middleResponse = await Service.getApiMiddleGoals(largeGoal.large_goal_id);
+                        
+                        if (middleResponse.responseStatus === 1 && middleResponse.middle_goals) {
+                          const sortedMiddleGoals = [...middleResponse.middle_goals].sort((a, b) => {
+                            const posA = a.position || 0;
+                            const posB = b.position || 0;
+                            return posA - posB;
+                          });
+        
+                          const position = (largeGoal as any).position;
+                          
+                          if (position && position >= 1 && position <= 8) {
+                            const largeCellId = `large_${position}`;
+                            
+                            const newCells: MandalaCell[] = Array.from({ length: 8 }, (_, i) => ({
+                              id: `${largeCellId}_middle_${i + 1}`,
+                              title: "",
+                              achievement: 0,
+                              status: "not_started" as const,
+                            }));
+        
+                            sortedMiddleGoals.forEach((middleGoal) => {
+                              const mgPosition = middleGoal.position;
+                              if (mgPosition && mgPosition >= 1 && mgPosition <= 8) {
+                                const index = mgPosition - 1;
+                                newCells[index] = {
+                                  id: `${largeCellId}_middle_${mgPosition}`,
+                                  title: middleGoal.goal_title || '',
+                                  achievement: Math.round(middleGoal.progress ?? 0),
+                                  status: (middleGoal.progress ?? 0) >= 100 ? "achieved" : (middleGoal.progress ?? 0) > 0 ? "in_progress" : "not_started",
+                                  plMetric: convertGoalTypeToPlMetric(middleGoal.goal_type),
+                                  middleGoalId: middleGoal.middle_goal_id,
+                                };
+                              }
+                            });
+        
+                            newMiddleCharts[largeCellId] = {
+                              centerId: largeCellId,
+                              centerTitle: largeGoal.goal_title || '',
+                              cells: newCells,
+                            };
+                          }
+                        }
+                      } catch (err) {
+                        console.error('中目標取得エラー:', err);
+                      }
+                    }
+                  }
+                  
+                  setMiddleCharts(newMiddleCharts);
+                }
+              }
+              
             } catch (error) {
               console.error('目標の更新/登録エラー:', error);
             }

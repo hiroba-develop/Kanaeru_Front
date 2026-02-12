@@ -504,13 +504,87 @@ const MonthlyBudgetActual: React.FC = () => {
     value: number
   ) => {
     const key = `${selectedYear}-${id}-${field}`;
+    
+    // ★★★ 追加：目標値の場合は年間合計をチェック ★★★
+    if (field === 'target' || field === 'profitTarget' || field === 'operatingProfitTarget') {
+      const MAX_YEARLY_AMOUNT = 9999999999;
+      
+      // 新しいpendingEditsを仮作成
+      const tempPendingEdits = {
+        ...pendingEdits,
+        [key]: value
+      };
+      
+      // 仮のデータで年間合計を計算
+      let yearlyTotal = 0;
+      
+      for (let i = 0; i < 12; i++) {
+        const monthIndex = (fiscalYearStart - 1 + i) % 12;
+        const month = monthIndex + 1;
+        
+        let actualYear = selectedYear;
+        if (month < fiscalYearStart) {
+          actualYear = selectedYear + 1;
+        }
+        
+        const tempKey = `${selectedYear}-${i}-${field}`;
+        
+        if (tempKey in tempPendingEdits) {
+          yearlyTotal += tempPendingEdits[tempKey];
+        } else {
+          // 既存データから取得
+          if (field === 'target') {
+            const saleData = sales.find(s => s.year === actualYear && s.month === month);
+            yearlyTotal += saleData?.saleTarget || 0;
+          } else if (field === 'profitTarget') {
+            const profitData = profits.find(p => p.year === actualYear && p.month === month);
+            yearlyTotal += profitData?.profitTarget || 0;
+          } else if (field === 'operatingProfitTarget') {
+            const opData = operatingProfits.find(op => op.year === actualYear && op.month === month);
+            yearlyTotal += opData?.operatingProfitTarget || 0;
+          }
+        }
+      }
+      
+      // ★★★ 上限チェック ★★★
+      if (yearlyTotal > MAX_YEARLY_AMOUNT) {
+        const excessAmount = yearlyTotal - MAX_YEARLY_AMOUNT;
+        const formatAmount = (amount: number): string => {
+          const manyen = Math.floor(amount / 10000);
+          if (manyen >= 10000) {
+            const oku = Math.floor(manyen / 10000);
+            const man = manyen % 10000;
+            return man === 0 ? `${oku}億円` : `${oku}億${man}万円`;
+          }
+          return `${manyen}万円`;
+        };
+        
+        const fieldLabel = 
+          field === 'target' ? '売上' :
+          field === 'profitTarget' ? '粗利益' : '営業利益';
+        
+        alert(
+          `⚠️ 年間合計が上限を超えています\n\n` +
+          `FY${selectedYear}の${fieldLabel}目標の年間合計が\n` +
+          `上限（99億9999万円）を${formatAmount(excessAmount)}超過します。\n\n` +
+          `年間合計は99億9999万円までです。\n` +
+          `他の月の金額を調整してください。`
+        );
+        
+        // 編集をキャンセル
+        setEditingCell(null);
+        return;
+      }
+    }
+    
+    // ★★★ 既存の処理 ★★★
     setPendingEdits((prev) => ({
       ...prev,
       [key]: value,
     }));
     setEditingCell(null);
   
-    // ★★★ 追加：編集内容を即座にtableDataに反映 ★★★
+    // 編集内容を即座にtableDataに反映
     setTableData((prev) => {
       return prev.map((data) => {
         if (data.id === id) {
@@ -753,6 +827,82 @@ const MonthlyBudgetActual: React.FC = () => {
     }
   };
 
+  // ★★★ 追加：月次データを比例配分で調整する関数 ★★★
+  const adjustMonthlyData = (
+    data: Sale[] | Profit[] | OperatingProfit[],
+    fiscalYear: number,
+    fiscalYearStartMonth: number,
+    maxAmount: number,
+    fieldType: 'target' | 'result'
+  ) => {
+    // 該当年度の12ヶ月分のデータを取得
+    const monthlyData: Array<{year: number; month: number; amount: number; index: number}> = [];
+    
+    for (let i = 0; i < 12; i++) {
+      const monthIndex = (fiscalYearStartMonth - 1 + i) % 12;
+      const month = monthIndex + 1;
+      
+      let actualYear = fiscalYear;
+      if (month < fiscalYearStartMonth) {
+        actualYear = fiscalYear + 1;
+      }
+      
+      const record = data.find((d: any) => d.year === actualYear && d.month === month);
+      if (record) {
+        let amount = 0;
+        if ('saleTarget' in record && fieldType === 'target') {
+          amount = record.saleTarget || 0;
+        } else if ('profitTarget' in record && fieldType === 'target') {
+          amount = record.profitTarget || 0;
+        } else if ('operatingProfitTarget' in record && fieldType === 'target') {
+          amount = record.operatingProfitTarget || 0;
+        }
+        
+        const dataIndex = data.findIndex((d: any) => d.year === actualYear && d.month === month);
+        monthlyData.push({ year: actualYear, month, amount, index: dataIndex });
+      }
+    }
+    
+    // 現在の合計を計算
+    const currentTotal = monthlyData.reduce((sum, m) => sum + m.amount, 0);
+    
+    if (currentTotal <= 0) return;
+    
+    // 比例配分で調整
+    const ratio = maxAmount / currentTotal;
+    let adjustedTotal = 0;
+    
+    monthlyData.forEach((m, idx) => {
+      if (idx === monthlyData.length - 1) {
+        // 最後の月で端数調整
+        const adjustedAmount = maxAmount - adjustedTotal;
+        if (m.index >= 0) {
+          const record = data[m.index] as any;
+          if ('saleTarget' in record && fieldType === 'target') {
+            record.saleTarget = adjustedAmount;
+          } else if ('profitTarget' in record && fieldType === 'target') {
+            record.profitTarget = adjustedAmount;
+          } else if ('operatingProfitTarget' in record && fieldType === 'target') {
+            record.operatingProfitTarget = adjustedAmount;
+          }
+        }
+      } else {
+        const adjustedAmount = Math.floor(m.amount * ratio);
+        adjustedTotal += adjustedAmount;
+        
+        if (m.index >= 0) {
+          const record = data[m.index] as any;
+          if ('saleTarget' in record && fieldType === 'target') {
+            record.saleTarget = adjustedAmount;
+          } else if ('profitTarget' in record && fieldType === 'target') {
+            record.profitTarget = adjustedAmount;
+          } else if ('operatingProfitTarget' in record && fieldType === 'target') {
+            record.operatingProfitTarget = adjustedAmount;
+          }
+        }
+      }
+    });
+  };
   const handleTableSave = async () => {
     if (!selectedUser?.id) {
       alert('ユーザー情報が取得できませんでした');
@@ -801,7 +951,6 @@ const MonthlyBudgetActual: React.FC = () => {
           });
         }
         
-        // ★ 追加：売上目標の変更を記録
         if (!yearlyTargetChanges[year]) {
           yearlyTargetChanges[year] = {};
         }
@@ -894,9 +1043,96 @@ const MonthlyBudgetActual: React.FC = () => {
       }
     });
   
-    // ★ 追加：月次PLデータをAPIに保存
+    // ★★★ 追加：年間合計の上限チェックと自動調整 ★★★
+    const MAX_YEARLY_AMOUNT = 9999999999;
+    const adjustmentMessages: string[] = [];
+  
+    for (const [yearStr, changes] of Object.entries(yearlyTargetChanges)) {
+      const year = parseInt(yearStr, 10);
+      
+      if (changes.revenue !== undefined) {
+        const yearlyTotal = calculateYearlyTotal(newSales, year, fiscalYearStart);
+        
+        if (yearlyTotal > MAX_YEARLY_AMOUNT) {
+          // 自動調整
+          const excessAmount = yearlyTotal - MAX_YEARLY_AMOUNT;
+          const formatAmount = (amount: number): string => {
+            const manyen = Math.floor(amount / 10000);
+            if (manyen >= 10000) {
+              const oku = Math.floor(manyen / 10000);
+              const man = manyen % 10000;
+              return man === 0 ? `${oku}億円` : `${oku}億${man}万円`;
+            }
+            return `${manyen}万円`;
+          };
+          
+          adjustmentMessages.push(
+            `FY${year}の売上目標の年間合計が上限（99億9999万円）を${formatAmount(excessAmount)}超過しています。\n` +
+            `自動的に99億9999万円に調整して保存します。`
+          );
+          
+          // 月次データを比例配分で調整
+          adjustMonthlyData(newSales, year, fiscalYearStart, MAX_YEARLY_AMOUNT, 'target');
+        }
+      }
+      
+      if (changes.grossProfit !== undefined) {
+        const yearlyTotal = calculateYearlyTotal(newProfits, year, fiscalYearStart);
+        
+        if (yearlyTotal > MAX_YEARLY_AMOUNT) {
+          const excessAmount = yearlyTotal - MAX_YEARLY_AMOUNT;
+          const formatAmount = (amount: number): string => {
+            const manyen = Math.floor(amount / 10000);
+            if (manyen >= 10000) {
+              const oku = Math.floor(manyen / 10000);
+              const man = manyen % 10000;
+              return man === 0 ? `${oku}億円` : `${oku}億${man}万円`;
+            }
+            return `${manyen}万円`;
+          };
+          
+          adjustmentMessages.push(
+            `FY${year}の粗利益目標の年間合計が上限（99億9999万円）を${formatAmount(excessAmount)}超過しています。\n` +
+            `自動的に99億9999万円に調整して保存します。`
+          );
+          
+          adjustMonthlyData(newProfits, year, fiscalYearStart, MAX_YEARLY_AMOUNT, 'target');
+        }
+      }
+      
+      if (changes.operatingProfit !== undefined) {
+        const yearlyTotal = calculateYearlyTotal(newOperatingProfits, year, fiscalYearStart);
+        
+        if (yearlyTotal > MAX_YEARLY_AMOUNT) {
+          const excessAmount = yearlyTotal - MAX_YEARLY_AMOUNT;
+          const formatAmount = (amount: number): string => {
+            const manyen = Math.floor(amount / 10000);
+            if (manyen >= 10000) {
+              const oku = Math.floor(manyen / 10000);
+              const man = manyen % 10000;
+              return man === 0 ? `${oku}億円` : `${oku}億${man}万円`;
+            }
+            return `${manyen}万円`;
+          };
+          
+          adjustmentMessages.push(
+            `FY${year}の営業利益目標の年間合計が上限（99億9999万円）を${formatAmount(excessAmount)}超過しています。\n` +
+            `自動的に99億9999万円に調整して保存します。`
+          );
+          
+          adjustMonthlyData(newOperatingProfits, year, fiscalYearStart, MAX_YEARLY_AMOUNT, 'target');
+        }
+      }
+    }
+  
+    // ★★★ 調整メッセージを表示 ★★★
+    if (adjustmentMessages.length > 0) {
+      alert(adjustmentMessages.join('\n\n'));
+    }
+  
+    // ★ 月次PLデータをAPIに保存
     try {
-      // マンダラとの差分チェックを先に実行（キャンセル可能）
+      // マンダラとの差分チェックを先に実行（調整後の金額で）
       for (const [yearStr, changes] of Object.entries(yearlyTargetChanges)) {
         const year = parseInt(yearStr, 10);
         

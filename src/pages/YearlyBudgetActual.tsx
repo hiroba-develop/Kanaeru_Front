@@ -314,12 +314,12 @@ const YearlyBudgetActual: React.FC = () => {
 
           setTargets(yearlyTargets);
 
-          // APIレスポンスから目標データを抽出
-          const goals: {
+          // APIレスポンスから目標データを抽出（重複を除外）
+          const goalsMap = new Map<string, {
             year: number;
             targetValue: number;
             metric: 'revenue' | 'grossProfit' | 'operatingProfit';
-          }[] = [];
+          }>();
 
           // 目標タイプをメトリックにマッピングする関数
           const goalTypeToMetric = (goalType: number | undefined): 'revenue' | 'grossProfit' | 'operatingProfit' | null => {
@@ -335,11 +335,15 @@ const YearlyBudgetActual: React.FC = () => {
               if (item.goal_type && item.target_year !== undefined && item.target_amount !== undefined) {
                 const metric = goalTypeToMetric(item.goal_type);
                 if (metric) {
-                  goals.push({
-                    year: item.target_year,
-                    targetValue: item.target_amount,
-                    metric: metric,
-                  });
+                  const key = `${metric}-${item.target_year}`;
+                  // 既に同じキーが存在しない場合のみ追加
+                  if (!goalsMap.has(key)) {
+                    goalsMap.set(key, {
+                      year: item.target_year,
+                      targetValue: item.target_amount,
+                      metric: metric,
+                    });
+                  }
                 }
               }
             });
@@ -351,15 +355,22 @@ const YearlyBudgetActual: React.FC = () => {
               if (item.goal_type && item.target_year !== undefined && item.target_amount !== undefined) {
                 const metric = goalTypeToMetric(item.goal_type);
                 if (metric) {
-                  goals.push({
-                    year: item.target_year,
-                    targetValue: item.target_amount,
-                    metric: metric,
-                  });
+                  const key = `${metric}-${item.target_year}`;
+                  // 既に同じキーが存在しない場合のみ追加
+                  if (!goalsMap.has(key)) {
+                    goalsMap.set(key, {
+                      year: item.target_year,
+                      targetValue: item.target_amount,
+                      metric: metric,
+                    });
+                  }
                 }
               }
             });
           }
+
+          // MapからArrayに変換
+          const goals = Array.from(goalsMap.values());
 
           setMandalaGoals(goals);
           
@@ -595,14 +606,21 @@ const YearlyBudgetActual: React.FC = () => {
           const activeChart = mandalaResponse.charts.find(chart => chart.is_active === true);
           
           if (activeChart) {
-            const allMiddleGoals: any[] = [];
+            // 中目標をMapで管理して重複を防ぐ
+            const middleGoalsMap = new Map();
+            
             if (activeChart.large_goals) {
               for (const largeGoal of activeChart.large_goals) {
                 if (largeGoal.large_goal_id) {
                   try {
                     const middleResponse = await Service.getApiMiddleGoals(largeGoal.large_goal_id);
                     if (middleResponse.responseStatus === 1 && middleResponse.middle_goals) {
-                      allMiddleGoals.push(...middleResponse.middle_goals);
+                      // 中目標をMapに追加（middle_goal_idで一意性を確保）
+                      middleResponse.middle_goals.forEach((mg: any) => {
+                        if (mg.middle_goal_id) {
+                          middleGoalsMap.set(mg.middle_goal_id, mg);
+                        }
+                      });
                     }
                   } catch (err) {
                     console.error('中目標取得エラー:', err);
@@ -610,6 +628,9 @@ const YearlyBudgetActual: React.FC = () => {
                 }
               }
             }
+            
+            // Mapから配列に変換
+            const allMiddleGoals = Array.from(middleGoalsMap.values());
   
             // 各メトリックごとにチェック
             const metricsToCheck: Array<{
@@ -624,7 +645,12 @@ const YearlyBudgetActual: React.FC = () => {
   
             for (const { metric, editValue, goalType } of metricsToCheck) {
               if (editValue === undefined) continue;
-  
+            
+              const metricLabel = 
+                metric === 'revenue' ? '売上' :
+                metric === 'grossProfit' ? '粗利益' : '営業利益';
+            
+              // 該当する年度・メトリックの目標を取得
               const largeGoals = activeChart.large_goals?.filter(
                 (lg: any) => lg.goal_type === goalType && lg.target_year === year
               ) || [];
@@ -633,20 +659,38 @@ const YearlyBudgetActual: React.FC = () => {
                 (mg: any) => mg.goal_type === goalType && mg.target_year === year
               );
               
-              const allGoals = [...largeGoals, ...middleGoals];
+              // 重複を完全に除外
+              const uniqueGoalsMap = new Map();
+              
+              largeGoals.forEach(lg => {
+                if (lg.large_goal_id) {
+                  uniqueGoalsMap.set(`large_${lg.large_goal_id}`, {
+                    ...lg,
+                    type: 'large'
+                  });
+                }
+              });
+              
+              middleGoals.forEach(mg => {
+                if (mg.middle_goal_id) {
+                  uniqueGoalsMap.set(`middle_${mg.middle_goal_id}`, {
+                    ...mg,
+                    type: 'middle'
+                  });
+                }
+              });
+              
+              const allGoals = Array.from(uniqueGoalsMap.values());
               
               if (allGoals.length === 0) continue;
-  
+            
+              // すべての目標金額が新しい値と一致するかチェック
               const allAmountsSame = allGoals.every(goal => goal.target_amount === editValue);
               
               if (!allAmountsSame) {
-                // ★ 金額が異なる場合は確認ダイアログを表示
-                const metricLabel = 
-                  metric === 'revenue' ? '売上' :
-                  metric === 'grossProfit' ? '粗利益' : '営業利益';
-                
+                // 金額フォーマット関数
                 const formatAmount = (amount: number): string => {
-                  const manyen = Math.round(amount / 10000);
+                  const manyen = Math.floor(amount / 10000); // Math.round ではなく Math.floor
                   if (manyen >= 10000) {
                     const oku = Math.floor(manyen / 10000);
                     const man = manyen % 10000;
@@ -658,33 +702,35 @@ const YearlyBudgetActual: React.FC = () => {
                   }
                   return `${manyen}万円`;
                 };
-  
-                const hierarchyInfoList: string[] = [];
+              
+                // 代表的な目標を取得
+                const representativeGoal = allGoals[0];
+                const existingAmount = representativeGoal?.target_amount || 0;
                 
-                allGoals.forEach(goal => {
-                  if ('large_goal_id' in goal && goal.large_goal_id) {
-                    hierarchyInfoList.push(`大目標：${goal.goal_title || ''}`);
-                  } else if ('middle_goal_id' in goal && goal.middle_goal_id) {
-                    const middleGoalData = allMiddleGoals.find(mg => mg.middle_goal_id === goal.middle_goal_id);
-                    if (middleGoalData && activeChart.large_goals) {
-                      const parentLargeGoal = activeChart.large_goals.find((lg: any) => 
-                        lg.large_goal_id === middleGoalData.large_goal_id
-                      );
-                      if (parentLargeGoal?.goal_title) {
-                        hierarchyInfoList.push(`大目標：${parentLargeGoal.goal_title}\n∟中目標：${goal.goal_title || ''}`);
-                      } else {
-                        hierarchyInfoList.push(`中目標：${goal.goal_title || ''}`);
-                      }
-                    }
+                // 階層情報を構築
+                let hierarchyInfo = '';
+                
+                if (representativeGoal.type === 'large') {
+                  // 大目標の場合
+                  hierarchyInfo = `大目標：${representativeGoal.goal_title || ''}`;
+                } else if (representativeGoal.type === 'middle') {
+                  // 中目標の場合 - 紐づく大目標を探す
+                  const parentLargeGoal = activeChart.large_goals?.find((lg: any) => 
+                    lg.large_goal_id === representativeGoal.large_goal_id
+                  );
+                  if (parentLargeGoal?.goal_title) {
+                    hierarchyInfo = `大目標：${parentLargeGoal.goal_title}\n∟中目標：${representativeGoal.goal_title || ''}`;
+                  } else {
+                    hierarchyInfo = `中目標：${representativeGoal.goal_title || ''}`;
                   }
-                });
+                }
                 
-                const hierarchyInfo = hierarchyInfoList.join('\n\n');
-                const newAmountDisplay = formatAmount(editValue);
-                const existingAmount = allGoals[0].target_amount || 0;
-                
-                const message = `FY${year}の${metricLabel}目標と\nマンダラの目標金額に差分があります。\n\n${hierarchyInfo}\n\nマンダラの目標金額を${newAmountDisplay}に更新しますか？`;
-  
+                // 月次PLと同じフォーマットのメッセージ
+                const message = 
+                  `FY${year}の${metricLabel}目標と\nマンダラの目標金額に差分があります。\n\n` +
+                  `${hierarchyInfo}\n\n` +
+                  `マンダラの目標金額を${formatAmount(editValue)}に更新しますか？`;
+              
                 // ★ Promiseで確認ダイアログの結果を待つ
                 const userChoice = await new Promise<'confirm' | 'cancel' | 'skip'>((resolve) => {
                   setMandalaUpdateDialog({
@@ -693,7 +739,7 @@ const YearlyBudgetActual: React.FC = () => {
                     fiscalYear: year,
                     goalType: metric,
                     yearlyTotal: editValue,
-                    existingAmount: existingAmount,
+                    existingAmount: existingAmount,  // ★ これで正しく動作する
                     onConfirm: () => {
                       setMandalaUpdateDialog(prev => ({ ...prev, isOpen: false }));
                       resolve('confirm');
@@ -703,7 +749,7 @@ const YearlyBudgetActual: React.FC = () => {
                       resolve('skip');
                     }
                   });
-  
+              
                   // ★ ダイアログが閉じられた時のキャンセル処理
                   const checkDialogClosed = setInterval(() => {
                     if (!document.querySelector('[data-mandala-dialog]')) {
@@ -711,12 +757,13 @@ const YearlyBudgetActual: React.FC = () => {
                     }
                   }, 100);
                 });
-  
+              
                 if (userChoice === 'confirm') {
-                  // ★ 「更新する」が選択された場合：マンダラを更新
                   for (const goal of allGoals) {
                     const formatAmountToText = (amount: number): string => {
-                      const manyen = Math.round(amount / 10000);
+                      const amountInt = Math.floor(amount);           // ★ 整数化
+                      const manyen = Math.floor(amountInt / 10000);   // ★ Math.floor に変更
+                      
                       if (manyen >= 10000) {
                         const oku = Math.floor(manyen / 10000);
                         const man = manyen % 10000;
@@ -726,17 +773,27 @@ const YearlyBudgetActual: React.FC = () => {
                           return `${oku}億${man}万`;
                         }
                       }
-                      return `${manyen}万`;
+                      
+                      if (manyen > 0) {
+                        return `${manyen}万`;
+                      }
+                      
+                      return '0';
                     };
-  
+              
                     if ('large_goal_id' in goal && goal.large_goal_id) {
                       let updatedGoalTitle = goal.goal_title || '';
                       const newAmountText = formatAmountToText(editValue);
-                      const cleanAmountText = newAmountText.replace(/,/g, '');
-                      updatedGoalTitle = updatedGoalTitle.replace(
-                        /(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万|(\d+(?:,\d+)*)億|(\d+(?:,\d+)*)万/,
-                        cleanAmountText
-                      );
+                      
+                      // ★ 最初に見つかった金額パターンを置換
+                      const amountPattern = /(\d+)億(\d+)万|(\d+)億|(\d+)万/;
+                      
+                      if (amountPattern.test(updatedGoalTitle)) {
+                        updatedGoalTitle = updatedGoalTitle.replace(amountPattern, newAmountText);
+                      } else {
+                        // 金額が見つからない場合は末尾に追加
+                        updatedGoalTitle = `${updatedGoalTitle}${newAmountText}`;
+                      }
                       
                       await withErrorHandling(() =>
                         Service.putApiLargeGoalsUpdate(goal.large_goal_id!, {
@@ -744,14 +801,21 @@ const YearlyBudgetActual: React.FC = () => {
                           goal_title: updatedGoalTitle,
                         })
                       );
-                    } else if ('middle_goal_id' in goal && goal.middle_goal_id) {
+                    }
+                    
+                    else if ('middle_goal_id' in goal && goal.middle_goal_id) {
                       let updatedGoalTitle = goal.goal_title || '';
                       const newAmountText = formatAmountToText(editValue);
-                      const cleanAmountText = newAmountText.replace(/,/g, '');
-                      updatedGoalTitle = updatedGoalTitle.replace(
-                        /(\d+(?:,\d+)*)億(\d+(?:,\d+)*)万|(\d+(?:,\d+)*)億|(\d+(?:,\d+)*)万/,
-                        cleanAmountText
-                      );
+                      
+                      // ★ 最初に見つかった金額パターンを置換
+                      const amountPattern = /(\d+)億(\d+)万|(\d+)億|(\d+)万/;
+                      
+                      if (amountPattern.test(updatedGoalTitle)) {
+                        updatedGoalTitle = updatedGoalTitle.replace(amountPattern, newAmountText);
+                      } else {
+                        // 金額が見つからない場合は末尾に追加
+                        updatedGoalTitle = `${updatedGoalTitle}${newAmountText}`;
+                      }
                       
                       await withErrorHandling(() =>
                         Service.putApiMiddleGoalsUpdate(goal.middle_goal_id!, {
