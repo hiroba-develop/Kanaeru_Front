@@ -27,6 +27,8 @@ tags:
     description: 小目標関連API
   - name: お問い合わせ
     description: お問い合わせ関連API
+  - name: Stripe決済
+    description: Stripe決済関連API
 
 paths:
   # =====================
@@ -70,11 +72,17 @@ paths:
                     type: string
                   userImageUrl:
                     type: string
+                  termsAgreedAt:
+                    type: string
+                    format: date-time
                   role:
                     type: string
                   token:
                     type: string
                     description: JWT認証トークン
+                  lastLoginAt:
+                    type: string
+                    format: date-time
   
   /api/auth/logout:
     post:
@@ -106,6 +114,36 @@ paths:
                     type: integer
                   message:
                     type: string
+
+  /api/auth/termsAgree:
+    post:
+      tags:
+        - 認証
+      summary: 利用規約同意
+      description: |
+        ログイン直後の利用規約同意時使用、利用規約同意日時を更新
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                termsAgreedAt:
+                  type: string
+      responses:
+        '200':
+          description: 同意成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
 
   /api/auth/registration/user:
     post:
@@ -451,6 +489,8 @@ paths:
                     $ref: '#/components/schemas/UserSchema'
                   settingSchema:
                     $ref: '#/components/schemas/SettingSchema'
+                  subscriptionSchema:
+                    $ref: '#/components/schemas/SubscriptionSchema'
 
   /api/setting/update/admin:
     put:
@@ -806,11 +846,6 @@ paths:
         - 画面初期表示
       summary: サポート画面 初期表示
       parameters:
-        - name: userId
-          in: query
-          required: true
-          schema:
-            type: string
         - name: selecteId
           in: query
           required: true
@@ -830,6 +865,14 @@ paths:
                     type: integer
                   dmMessageSchema:
                     $ref: '#/components/schemas/DmMessagesSchema'
+                  dmMessagesSchemaList:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DmMessagesSchema'
+                  adviceSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdviceSchema'
 
   # =====================
   # サポート画面関連API
@@ -860,14 +903,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  responseStatus:
-                    type: integer
-                  lastMessageSeq:
-                    type: integer
-                  dmMessageSchema:
-                    $ref: '#/components/schemas/DmMessagesSchema'
+                $ref: '#/components/schemas/ApiSupportSendPost200Response'
 
   /api/support/read:
     get:
@@ -960,7 +996,142 @@ paths:
                         type: integer
                       readAt:
                         type: string
-                        format: date-time
+                        
+  /api/support/unread-status:
+    get:
+      tags:
+        - サポート画面
+      summary: 未読状態取得
+      operationId: apiSupportUnreadStatusGet
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSupportUnreadStatusGet200Response'
+
+  /api/support/advice:
+    get:
+      tags:
+        - サポート画面
+      summary: サポート画面 アドバイス取得
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: month
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  adviceSchema:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdviceSchema'
+
+  /api/support/advice/create:
+    post:
+      tags:
+        - サポート画面
+      summary: サポート画面 アドバイス作成
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                adviceContent:
+                  type: string
+      responses:
+        '200':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  adviceId:
+                    type: string
+                  responseStatus:
+                    type: integer
+
+  /api/support/advice/update:
+    put:
+      tags:
+        - サポート画面
+      summary: サポート画面 アドバイス更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                adviceId:
+                  type: string
+                adviceContent:
+                  type: string
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/support/advice/delete:
+    delete:
+      tags:
+        - サポート画面
+      summary: サポート画面 アドバイス削除
+      parameters:
+        - name: adviceId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
 
   /api/availability:
     get:
@@ -2049,6 +2220,36 @@ paths:
                   message:
                     type: string
 
+  /api/small-goals/{small_goal_id}/reorder:
+    post:
+      tags:
+        - 小目標
+      summary: 小目標順番変更
+      parameters:
+        - name: small_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiSmallGoalsSmallGoalIdReorderPostRequest'
+      responses:
+        '200':
+          description: 変更成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
   /api/small-goals/{small_goal_id}/delete:
     delete:
       tags:
@@ -2109,6 +2310,246 @@ paths:
                   message:
                     type: string
 
+  # =====================
+  # Stripe決済関連API
+  # =====================
+  /api/stripe/subscription/create:
+    post:
+      tags:
+        - Stripe決済
+      summary: サブスクリプション作成
+      description: |
+        有料プラン選択時、Stripe CustomerとSubscriptionを作成しClientSecretを返す
+        フロントのStep3→Step4移行時に呼ばれる
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: user_id
+          description: ユーザーID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubscriptionRequest'
+      responses:
+        '200':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSubscriptionResponse'
+        '409':
+          description: 既にアクティブなサブスクリプションが存在
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+        '500':
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/stripe/subscription/:
+    get:
+      tags:
+        - Stripe決済
+      summary: 現在のサブスクリプション情報取得
+      description: |
+        ユーザーの現在のサブスクリプション状態を取得する
+        サブスクリプションがない場合はnullを返す
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: ユーザーID
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  subscription:
+                    $ref: '#/components/schemas/SubscriptionSchema'
+        '500':
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/stripe/subscription/cancel:
+    post:
+      tags:
+        - Stripe決済
+      summary: サブスクリプション解約
+      description: |
+        サブスクリプションを期間終了時に解約する
+        即時解約ではなく、現在の請求期間終了まで利用可能
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: ユーザーID
+      responses:
+        '200':
+          description: 解約予約成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  subscription:
+                    $ref: '#/components/schemas/SubscriptionSchema'
+                  message:
+                    type: string
+        '404':
+          description: アクティブなサブスクリプションが見つからない
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+        '500':
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/stripe/subscription/cancel/incomplete:
+    post:
+      tags:
+        - Stripe決済
+      summary: サブスクリプション解約（未完了）
+      description: |
+        未完了のサブスクリプションを解約する
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: ユーザーID
+      responses:
+        '200':
+          description: 解約成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+        '404':
+          description: 未完了のサブスクリプションが見つからない
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+        '500':
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/webhooks/stripe:
+    post:
+      tags:
+        - Stripe決済
+      summary: StripeWebhook受信
+      description: |
+        Stripeからの非同期通知を受け取る
+        Stripeダッシュボード「開発者」→「Webhook」でこのURLを登録すること
+        対応イベント:
+          - invoice.paid（支払い完了 → サブスク有効化/更新）
+          - invoice.payment_failed（支払い失敗）
+          - customer.subscription.deleted（サブスクリプション終了 → 無効化）
+        【重要】リクエストボディは署名検証のためraw bodyで受け取ること
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Stripeの署名（署名検証に使用）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              description: Stripeからのイベントペイロード（raw bodyで受け取ること）
+      responses:
+        '200':
+          description: 受信成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+        '400':
+          description: 署名検証失敗
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string                                     
+
 components:
   schemas:
     UserSchema:
@@ -2140,6 +2581,9 @@ components:
           type: integer
         webhookUrl:
           type: string
+        termsAgreedAt:
+          type: string
+          format: date-time
     
     UserListSchema:
       type: object
@@ -2382,4 +2826,120 @@ components:
         target_year:
           type: integer
         target_amount:
-          type: number  
+          type: number 
+
+    AdviceSchema:
+      type: object
+      properties:
+        userId:
+          type: string
+        adminId:
+          type: string
+        adminName:
+          type: string
+        adviceId:
+          type: string
+        adviceContent:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ApiSupportSendPost200Response:
+      type: object
+      properties:
+        responseStatus:
+          type: integer
+        lastMessageSeq:
+          type: integer
+        dmMessageSchema:
+          $ref: '#/components/schemas/DmMessagesSchema'
+
+    ApiSmallGoalsSmallGoalIdReorderPostRequest:
+      type: object
+      properties:
+        small_goal_id:
+          type: string
+        position:
+          type: integer
+          description: 新しい位置(1-10の範囲)
+
+    CreateSubscriptionRequest:
+      type: object
+      required:
+        - userId
+      properties:
+        userId:
+          type: string
+          description: ユーザーID
+
+    CreateSubscriptionResponse:
+      type: object
+      properties:
+        responseStatus:
+          type: integer
+          description: 成功時は1、失敗時は0
+        clientSecret:
+          type: string
+          description: フロントのStripe Elements confirmPaymentに使用するClientSecret
+        subscriptionId:
+          type: string
+          description: 作成されたStripe SubscriptionのID
+        customerId:
+          type: string
+          description: 作成または取得されたStripe CustomerのID
+        amount:
+          type: integer
+          description: 請求金額（円）
+
+    SubscriptionSchema:
+      type: object
+      properties:
+        id:
+          type: string
+          description: StripeサブスクリプションID
+        status:
+          type: string
+          description: サブスクリプションの状態（active / past_due / canceled など）
+        currentPeriodStart:
+          type: string
+          format: date-time
+          description: 現在の請求期間の開始日時
+        currentPeriodEnd:
+          type: string
+          format: date-time
+          description: 現在の請求期間の終了日時
+        cancelAtPeriodEnd:
+          type: boolean
+          description: 期間終了時に解約予定かどうか
+        canceledAt:
+          type: string
+          format: date-time
+          description: 解約予約日時（cancelAtPeriodEndがtrueの場合に設定）
+        amount:
+          type: integer
+          description: 請求金額（円）
+        billingCycle:
+          type: string
+          description: 請求サイクル（monthly / yearly など）
+        createdAt:
+          type: string
+          format: date-time
+          description: サブスクリプション作成日時
+ 
+    ApiSupportUnreadStatusGet200Response:
+      type: object
+      properties:
+        responseStatus:
+          type: integer
+        hasUnread:
+          type: boolean
+          description: 一般ユーザー用（未読あり/なし）
+        unreadUserIds:
+          type: array
+          description: 管理者用（未読のある送信者IDリスト）
+          items:
+            type: string         

@@ -11,6 +11,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  ReferenceLine,
 } from "recharts";
 import * as pdfjs from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker?url";
@@ -442,51 +443,84 @@ const MonthlyBudgetActual: React.FC = () => {
     }
   };
 
-  // グラフのY軸最大値を動的に計算
+  // グラフのY軸レンジを動的に計算（マイナス対応）
   const yAxisDomain = React.useMemo((): [number, number] => {
     const displayData = getDisplayData();
-    
+
     if (displayData.length === 0) {
-      return [0, 10000000]; // データがない場合は0〜1000万円
+      return [0, 10000000];
     }
-    
+
+    let minValue = 0;
     let maxValue = 0;
     displayData.forEach((data) => {
       if (activeChart === "revenue") {
         maxValue = Math.max(maxValue, data.target || 0, data.actual || 0);
       } else if (activeChart === "profit") {
+        minValue = Math.min(minValue, data.profitTarget || 0, data.profit || 0);
         maxValue = Math.max(maxValue, data.profitTarget || 0, data.profit || 0);
       } else {
+        minValue = Math.min(minValue, data.operatingProfitTarget || 0, data.operatingProfit || 0);
         maxValue = Math.max(maxValue, data.operatingProfitTarget || 0, data.operatingProfit || 0);
       }
     });
-    
-    // データがすべて0の場合
-    if (maxValue === 0) {
-      return [0, 10000000]; // 0〜1000万円
+
+    if (maxValue === 0 && minValue === 0) {
+      return [0, 10000000];
     }
-    
-    // 最大値に50%の余裕を持たせる
-    const paddedMax = maxValue * 1.5;
-    
-    // 適切な単位で切り上げ
-    let upperBound;
+
+    // 上限：50%の余裕を持たせて単位切り上げ
+    const paddedMax = maxValue > 0 ? maxValue * 1.5 : 1000000;
+    let upperBound: number;
     if (paddedMax < 1000000) {
-      // 100万円未満: 10万円単位で切り上げ
       upperBound = Math.ceil(paddedMax / 100000) * 100000;
     } else if (paddedMax < 10000000) {
-      // 1000万円未満: 100万円単位で切り上げ
       upperBound = Math.ceil(paddedMax / 1000000) * 1000000;
     } else if (paddedMax < 100000000) {
-      // 1億円未満: 1000万円単位で切り上げ
       upperBound = Math.ceil(paddedMax / 10000000) * 10000000;
     } else {
-      // 1億円以上: 1億円単位で切り上げ
       upperBound = Math.ceil(paddedMax / 100000000) * 100000000;
     }
-    
-    return [0, upperBound];
+
+    // 下限：マイナスがある場合は50%の余裕を持たせて単位切り捨て
+    let lowerBound = 0;
+    if (minValue < 0) {
+      const paddedMin = minValue * 1.5;
+      if (paddedMin > -1000000) {
+        lowerBound = Math.floor(paddedMin / 100000) * 100000;
+      } else if (paddedMin > -10000000) {
+        lowerBound = Math.floor(paddedMin / 1000000) * 1000000;
+      } else if (paddedMin > -100000000) {
+        lowerBound = Math.floor(paddedMin / 10000000) * 10000000;
+      } else {
+        lowerBound = Math.floor(paddedMin / 100000000) * 100000000;
+      }
+    }
+
+    return [lowerBound, upperBound];
   }, [activeChart, selectedPeriod, tableData]);
+
+  // Y軸の目盛り（0を必ず含む）
+  const yAxisTicks = React.useMemo((): number[] => {
+    const [min, max] = yAxisDomain;
+    const range = max - min;
+    if (range === 0) return [0];
+
+    const roughStep = range / 6;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const step = Math.ceil(roughStep / magnitude) * magnitude;
+
+    const ticks: number[] = [];
+    const start = Math.ceil(min / step) * step;
+    for (let t = start; t <= max + step * 0.01; t += step) {
+      ticks.push(Math.round(t));
+    }
+    if (min <= 0 && max >= 0 && !ticks.includes(0)) {
+      ticks.push(0);
+      ticks.sort((a, b) => a - b);
+    }
+    return ticks;
+  }, [yAxisDomain]);
 
   const getTableDisplayData = () => {
     if (selectedPeriod === "12") {
@@ -1246,12 +1280,17 @@ const MonthlyBudgetActual: React.FC = () => {
     },
   ];
 
+  const negativeAllowedFields: EditableField[] = [
+    "profit", "profitTarget", "operatingProfit", "operatingProfitTarget",
+  ];
+
   const renderEditableCell = (data: MonthlyData, field: EditableField) => {
     const key = `${selectedYear}-${data.id}-${field}`;
     const hasPendingEdit = key in pendingEdits;
     const displayValue = hasPendingEdit
       ? pendingEdits[key]
       : (data[field as keyof MonthlyData] as number);
+    const allowNegative = negativeAllowedFields.includes(field);
   
     // ★ 追加：編集権限がない場合は閲覧のみのセルを返す
     if (!canEdit) {
@@ -1265,11 +1304,13 @@ const MonthlyBudgetActual: React.FC = () => {
             minWidth: '80px'
           }}
         >
-          {displayValue > 0 ? Number(displayValue).toLocaleString('ja-JP') : "-"}
+          {displayValue !== 0
+            ? Number(displayValue).toLocaleString('ja-JP')
+            : "-"}
         </td>
       );
     }
-  
+
     // 編集可能な場合は既存のロジック
     return (
       <td
@@ -1290,23 +1331,32 @@ const MonthlyBudgetActual: React.FC = () => {
             type="number"
             defaultValue={displayValue}
             max={9999999999}
+            min={allowNegative ? -9999999999 : 0}
             onInput={(e) => {
               const input = e.currentTarget;
-              const value = input.value;
-              if (value.length > 10) {
-                input.value = value.slice(0, 10);
+              const raw = input.value;
+              // マイナス符号を除いた文字数で桁数制限
+              const digits = raw.startsWith("-") ? raw.length - 1 : raw.length;
+              if (digits > 10) {
+                input.value = raw.slice(0, raw.startsWith("-") ? 11 : 10);
               }
-              if (Number(input.value) < 0) {
+              if (!allowNegative && Number(input.value) < 0) {
                 input.value = '0';
               }
             }}
             onBlur={(e) => {
-              const value = Math.min(Math.max(Number(e.target.value), 0), 9999999999);
+              const raw = Number(e.target.value);
+              const value = allowNegative
+                ? Math.min(Math.max(raw, -9999999999), 9999999999)
+                : Math.min(Math.max(raw, 0), 9999999999);
               handleCellUpdate(data.id, field, value);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                const value = Math.min(Math.max(Number(e.currentTarget.value), 0), 9999999999);
+                const raw = Number(e.currentTarget.value);
+                const value = allowNegative
+                  ? Math.min(Math.max(raw, -9999999999), 9999999999)
+                  : Math.min(Math.max(raw, 0), 9999999999);
                 handleCellUpdate(data.id, field, value);
               } else if (e.key === "Escape") {
                 setEditingCell(null);
@@ -1327,7 +1377,7 @@ const MonthlyBudgetActual: React.FC = () => {
             autoFocus
             onFocus={(e) => e.target.select()}
           />
-        ) : displayValue > 0 ? (
+        ) : displayValue !== 0 ? (
           Number(displayValue).toLocaleString('ja-JP')
         ) : (
           "-"
@@ -1343,7 +1393,7 @@ const MonthlyBudgetActual: React.FC = () => {
   ) => {
     const targetKey = `${selectedYear}-${data.id}-${targetField}`;
     const actualKey = `${selectedYear}-${data.id}-${actualField}`;
-
+  
     const target =
       targetKey in pendingEdits
         ? pendingEdits[targetKey]
@@ -1352,9 +1402,9 @@ const MonthlyBudgetActual: React.FC = () => {
       actualKey in pendingEdits
         ? pendingEdits[actualKey]
         : (data[actualField as keyof MonthlyData] as number);
-
+  
     // 目標が未設定の場合は「-」を表示
-    if (target <= 0) {
+    if (target === 0) {
       return (
         <td
           key={`${data.id}-rate`}
@@ -1364,20 +1414,60 @@ const MonthlyBudgetActual: React.FC = () => {
         </td>
       );
     }
-
+  
     const rate = (actual / target) * 100;
     return (
       <td
         key={`${data.id}-rate`}
         className={`py-2 sm:py-3 px-1 sm:px-2 text-right font-medium text-xs sm:text-sm ${
-          rate >= 100
-            ? "text-success"
-            : rate >= 90
-            ? "text-warning"
-            : "text-error"
+          rate >= 100 ? "text-success" : rate >= 90 ? "text-warning" : "text-error"
         }`}
       >
-        {actual > 0 ? `${rate.toFixed(1)}%` : "-"}
+        {actual !== 0 ? `${rate.toFixed(1)}%` : "-"}
+      </td>
+    );
+  };
+  const renderSumCell = (field: EditableField) => {
+    const displayData = getTableDisplayData();
+    const total = displayData.reduce((sum, data) => {
+      const key = `${selectedYear}-${data.id}-${field}`;
+      const value = key in pendingEdits
+        ? pendingEdits[key]
+        : (data[field as keyof MonthlyData] as number);
+      return sum + (value || 0);
+    }, 0);
+  
+    return (
+      <td className="py-2 sm:py-3 px-1 sm:px-2 text-right font-semibold text-xs sm:text-sm whitespace-nowrap border-l border-border/50 text-primary">
+        {total !== 0 ? total.toLocaleString('ja-JP') : "-"}
+      </td>
+    );
+  };
+
+  const renderSumRateCell = (targetField: EditableField, actualField: EditableField) => {
+    const displayData = getTableDisplayData();
+    const totalTarget = displayData.reduce((sum, data) => {
+      const key = `${selectedYear}-${data.id}-${targetField}`;
+      const value = key in pendingEdits ? pendingEdits[key] : (data[targetField as keyof MonthlyData] as number);
+      return sum + (value || 0);
+    }, 0);
+    const totalActual = displayData.reduce((sum, data) => {
+      const key = `${selectedYear}-${data.id}-${actualField}`;
+      const value = key in pendingEdits ? pendingEdits[key] : (data[actualField as keyof MonthlyData] as number);
+      return sum + (value || 0);
+    }, 0);
+  
+    if (totalTarget === 0) {
+      return (
+        <td className="py-2 sm:py-3 px-1 sm:px-2 text-right font-semibold text-xs sm:text-sm border-l-2 border-border/50">-</td>
+      );
+    }
+    const rate = (totalActual / totalTarget) * 100;
+    return (
+      <td className={`py-2 sm:py-3 px-1 sm:px-2 text-right font-semibold text-xs sm:text-sm border-l-2 border-border/50 ${
+        rate >= 100 ? "text-success" : rate >= 90 ? "text-warning" : "text-error"
+      }`}>
+        {`${rate.toFixed(1)}%`}
       </td>
     );
   };
@@ -1656,17 +1746,12 @@ const MonthlyBudgetActual: React.FC = () => {
   return (
     <div className="space-y-6 px-4 sm:px-6 lg:px-8 py-6" style={{ maxWidth: '100vw', overflow: 'hidden' }}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <img
             src={plIcon}
             alt="PL"
             className="inline-block"
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              objectFit: 'cover'
-            }}
+            style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }}
           />
           <h1 className="text-xl sm:text-2xl font-bold text-text">月次PL</h1>
           
@@ -1678,20 +1763,16 @@ const MonthlyBudgetActual: React.FC = () => {
             >
               年次
             </button>
-            <button
-              className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-white shadow-sm font-semibold text-xs sm:text-sm text-primary"
-            >
+            <button className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-white shadow-sm font-semibold text-xs sm:text-sm text-primary">
               月次
             </button>
           </div>
-        </div>
-        
-        {/* 年度・期間選択プルダウン */}
-        <div className="flex flex-col sm:flex-row gap-2">
+
+          {/* 年度・期間選択プルダウン（タブの右隣に移動） */}
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
-            className="text-sm border border-border rounded px-2 sm:px-3 py-1.5 sm:py-2 pr-8 appearance-none bg-background focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-auto"
+            className="text-sm border border-border rounded px-2 sm:px-3 py-1.5 sm:py-2 pr-8 appearance-none bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             style={{
               backgroundImage: 'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
               backgroundRepeat: "no-repeat",
@@ -1709,7 +1790,7 @@ const MonthlyBudgetActual: React.FC = () => {
           <select
             value={selectedPeriod}
             onChange={(e) => setSelectedPeriod(e.target.value as "12" | "6H1" | "6H2")}
-            className="text-sm border border-border rounded px-2 sm:px-3 py-1.5 sm:py-2 pr-8 appearance-none bg-background focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-36"
+            className="text-sm border border-border rounded px-2 sm:px-3 py-1.5 sm:py-2 pr-8 appearance-none bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             style={{
               backgroundImage: 'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
               backgroundRepeat: "no-repeat",
@@ -1776,10 +1857,12 @@ const MonthlyBudgetActual: React.FC = () => {
                 <YAxis
                   stroke="#9CA3AF"
                   tick={{ fill: "#1E1F1F", fontSize: 14 }}
-                  domain={yAxisDomain} 
+                  domain={yAxisDomain}
+                  ticks={yAxisTicks}
                   tickFormatter={(value) => {
+                    if (value === 0) return "0";
                     const manyen = value / 10000;
-                    if (manyen >= 10000) {
+                    if (Math.abs(manyen) >= 10000) {
                       const oku = manyen / 10000;
                       return `${oku.toFixed(1)}億`;
                     }
@@ -1821,9 +1904,11 @@ const MonthlyBudgetActual: React.FC = () => {
                   stroke="#9CA3AF"
                   tick={{ fill: "#1E1F1F", fontSize: 14 }}
                   domain={yAxisDomain}
+                  ticks={yAxisTicks}
                   tickFormatter={(value) => {
+                    if (value === 0) return "0";
                     const manyen = value / 10000;
-                    if (manyen >= 10000) {
+                    if (Math.abs(manyen) >= 10000) {
                       const oku = manyen / 10000;
                       return `${oku.toFixed(1)}億`;
                     }
@@ -1845,6 +1930,7 @@ const MonthlyBudgetActual: React.FC = () => {
                   labelStyle={{ color: "#1E1F1F", fontSize: 14 }}
                   contentStyle={{ fontSize: 14 }}
                 />
+                <ReferenceLine y={0} stroke="#6B7280" strokeWidth={0.5} />
                 <Legend />
                 <Bar dataKey="profitTarget" fill="#B3DBC0" name="目標" />
                 <Bar dataKey="profit" fill="#13AE67" name="実績" />
@@ -1864,10 +1950,12 @@ const MonthlyBudgetActual: React.FC = () => {
                 <YAxis
                   stroke="#9CA3AF"
                   tick={{ fill: "#1E1F1F", fontSize: 14 }}
-                  domain={yAxisDomain} 
+                  domain={yAxisDomain}
+                  ticks={yAxisTicks}
                   tickFormatter={(value) => {
+                    if (value === 0) return "0";
                     const manyen = value / 10000;
-                    if (manyen >= 10000) {
+                    if (Math.abs(manyen) >= 10000) {
                       const oku = manyen / 10000;
                       return `${oku.toFixed(1)}億`;
                     }
@@ -1889,6 +1977,7 @@ const MonthlyBudgetActual: React.FC = () => {
                   labelStyle={{ color: "#1E1F1F", fontSize: 14 }}
                   contentStyle={{ fontSize: 14 }}
                 />
+                <ReferenceLine y={0} stroke="#6B7280" strokeWidth={0.5} />
                 <Legend />
                 <Bar dataKey="operatingProfitTarget" fill="#B3DBC0" name="目標" />
                 <Bar dataKey="operatingProfit" fill="#13AE67" name="実績" />
@@ -1960,6 +2049,10 @@ const MonthlyBudgetActual: React.FC = () => {
                       {data.month}
                     </th>
                   ))}
+                  <th className="text-right py-2 sm:py-3 px-1 sm:px-2 whitespace-nowrap font-medium text-xs sm:text-sm text-primary border-l border-border/50"
+                    style={{ minWidth: '100px' }}>
+                    合計
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -1981,6 +2074,7 @@ const MonthlyBudgetActual: React.FC = () => {
                           item.targetField as EditableField
                         )
                       )}
+                       {renderSumCell(item.targetField as EditableField)}
                     </tr>
                     <tr className="border-b border-border/50">
                       <td className="py-2 sm:py-3 px-1 sm:px-2 font-medium whitespace-nowrap text-left text-xs sm:text-sm">
@@ -1992,6 +2086,7 @@ const MonthlyBudgetActual: React.FC = () => {
                           item.actualField as EditableField
                         )
                       )}
+                      {renderSumCell(item.actualField as EditableField)}
                     </tr>
                     <tr className="border-b border-border/50">
                       <td className="py-2 sm:py-3 px-1 sm:px-2 font-medium whitespace-nowrap text-left text-xs sm:text-sm">
@@ -2004,6 +2099,7 @@ const MonthlyBudgetActual: React.FC = () => {
                           item.actualField as EditableField
                         )
                       )}
+                      {renderSumRateCell(item.targetField as EditableField, item.actualField as EditableField)}
                     </tr>
                   </React.Fragment>
                 ))}

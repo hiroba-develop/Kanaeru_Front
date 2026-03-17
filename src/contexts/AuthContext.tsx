@@ -17,7 +17,9 @@ interface AuthContextType {
     role?: string,
     token?: string,
     name?: string,
-    userImageUrl?: string
+    userImageUrl?: string,
+    termsAgreedAt?: string,
+    lastLoginAt?: string | null
   ) => Promise<void>;
   completeSetup: (setupData: InitialSetup) => void;
   updateUserSetup: (setupData: Partial<InitialSetup>) => void;
@@ -28,6 +30,11 @@ interface AuthContextType {
   managedUsers: AuthUser[];
   selectedUser: AuthUser | null;
   switchUser: (userId: string) => void;
+  showTermsModal: boolean;
+  setShowTermsModal: (v: boolean) => void;
+  closeTermsModal: () => void;
+  refreshUser: () => Promise<void>;
+  handlePlanUpgrade: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -116,6 +123,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   
   // ログアウト処理中フラグ（複数回実行を防ぐ）
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+
+  const closeTermsModal = () => {
+    setShowTermsModal(false);
+    deleteCookie("showTermsModal");
+    setCookie("termsAgreedAt", new Date().toISOString(), 24 * 365);
+  };
 
   // セッション期限切れフラグをクリアする関数
   const clearSessionExpired = () => {
@@ -168,12 +182,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const restoreAuthState = async () => {
       const userId = getCookie("userId");
+      const token = getCookie("authToken");
+      // ★ 追加
+      if (token) {
+              const { OpenAPI } = await import("../api/core/OpenAPI");
+              OpenAPI.TOKEN = token;
+      }
       const role = getCookie("role");
       const selectedUserId = getCookie("selectedUserId");
       const userName = getCookie("userName");
       const userImageUrl = getCookie("userImageUrl");
       const userEmail = getCookie("userEmail"); // ← 追加
-
+      
       if (!userId) {
         setShouldRedirectToLogin(true);
         setIsLoading(false);
@@ -220,16 +240,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               
               setManagedUsers(managedUsersList);
               
-              // ★ 修正：CookieにselectedUserIdがある場合のみ復元
-              if (selectedUserId) {
+              // URL に Cookie と異なる userId が指定されている場合（別タブで別ユーザーを
+              // 開いている状態で直リンクを開いた場合など）は Cookie を使わず null にする。
+              // Support ページの useEffect が URL の userId で正しいユーザーに切り替える。
+              const urlParams = new URLSearchParams(window.location.search);
+              const urlUserId = urlParams.get("userId");
+              const isSupportPath = window.location.pathname.includes("/support");
+              const shouldIgnoreCookie =
+                isSupportPath && !!urlUserId && urlUserId !== selectedUserId;
+
+              if (selectedUserId && !shouldIgnoreCookie) {
                 const userToSelect = managedUsersList.find((u) => u.id === selectedUserId);
                 if (userToSelect) {
                   setSelectedUser(userToSelect);
                 } else {
-                  setSelectedUser(null);  // ★ 修正：nullに設定
+                  setSelectedUser(null);
                 }
               } else {
-                setSelectedUser(null);  // ★ 修正：nullに設定
+                setSelectedUser(null);
               }
             } else {
               setManagedUsers([]);
@@ -247,6 +275,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         fetchManagedUsers();
       } else {
         setSelectedUser(userToSet);
+      
+        // termsAgreedAtをCookieから確認
+        const termsModalFlag = getCookie("showTermsModal");
+        const termsAgreedAtCookie = getCookie("termsAgreedAt");
+      
+        if (termsModalFlag === "true" && !termsAgreedAtCookie) {
+          setShowTermsModal(true);
+        } else {
+          // 同意済みまたはフラグなしの場合はCookieをクリア
+          deleteCookie("showTermsModal");
+          setShowTermsModal(false);
+        }
+      
         setIsLoading(false);
       }
     };
@@ -261,7 +302,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     role?: string,
     token?: string,
     name?: string,
-    userImageUrl?: string
+    userImageUrl?: string,
+    termsAgreedAt?: string,
+    lastLoginAt?: string | null
   ): Promise<void> => {
     setIsLoading(true);
     try {
@@ -287,7 +330,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setCookie("userId", userId);
       setCookie("userEmail", email);
       if (role) setCookie("role", role);
-      if (token) setCookie("authToken", token);
+      if (token) {
+        setCookie("authToken", token);
+        // APIリクエストに使用するトークンを設定
+        const { OpenAPI } = await import("../api/core/OpenAPI");
+        OpenAPI.TOKEN = token;
+      }
       // nameが空文字列でもCookieに保存（空文字列チェックを追加）
       if (name !== undefined && name !== null) {
         setCookie("userName", name);
@@ -342,6 +390,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       } else {
         // 一般ユーザーの場合
         setSelectedUser(user);
+
+        if (!termsAgreedAt) {
+          setShowTermsModal(true);
+          setCookie("showTermsModal", "true", 1);
+          deleteCookie("termsAgreedAt");
+        } else {
+          deleteCookie("showTermsModal");
+          setShowTermsModal(false);
+          setCookie("termsAgreedAt", termsAgreedAt, 24 * 365); // 1年間保持
+        }
+        if (lastLoginAt === null || lastLoginAt === undefined) {
+          setCookie("showPlanSelectModal", "true", 1);
+        } else {
+          deleteCookie("showPlanSelectModal");
+        }
       }
       
     } catch (error) {
@@ -374,17 +437,45 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (user) {
       const updatedUser = { ...user, ...userData };
       setUser(updatedUser);
-      
-      // avatarが更新された場合、Cookieも更新
+  
       if (userData.avatar) {
         setCookie("userImageUrl", userData.avatar);
       }
-      
-      // selectedUserも更新（同じユーザーの場合）
+      // ↓ 追加
+      if (userData.role) {
+        setCookie("role", userData.role);
+      }
+  
       if (selectedUser && selectedUser.id === user.id) {
         setSelectedUser({ ...selectedUser, ...userData });
       }
     }
+  };
+  const refreshUser = async () => {
+    if (!user) return;
+    try {
+      const { Service } = await import("../api/services/Service");
+      const { withErrorHandling } = await import("../utils/apiErrorHandler");
+      const response = await withErrorHandling(() =>
+        Service.getApiSettingUser(user.id)
+      );
+      if (response.responseStatus === 1 && response.userSchema) {
+        const newRole = response.userSchema.role;
+        console.log("refreshUser newRole:", newRole); // デバッグ用
+        if (newRole) {
+          updateUser({ role: newRole });
+        }
+      }
+    } catch (error) {
+      console.error("ユーザー情報の再取得に失敗:", error);
+    }
+  };
+
+  const handlePlanUpgrade = () => {
+    updateUser({ role: "4" });
+    setTimeout(async () => {
+      await refreshUser();
+    }, 5000);
   };
 
   const loadUserSetup = async () => {
@@ -567,6 +658,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     managedUsers,
     selectedUser,
     switchUser,
+    showTermsModal,
+    setShowTermsModal,
+    closeTermsModal,
+    refreshUser,
+    handlePlanUpgrade,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

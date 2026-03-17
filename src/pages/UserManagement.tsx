@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Service } from "../api/services/Service";
 import { withErrorHandling } from "../utils/apiErrorHandler";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import {
   Users,
@@ -14,7 +14,7 @@ import {
   ChevronRight,
   ArrowLeft,
   User,
-  BarChart3,
+  MessageCircle,
 } from "lucide-react";
 import mandalaIcon from "../assets/mandala_icon.png";
 import plIcon from "../assets/icon_pl.png"; 
@@ -25,6 +25,7 @@ import type {
 } from "../types";
 import type { UserListSchema } from "../api/models/UserListSchema";
 import type { SettingSchema } from "../api/models/SettingSchema";
+import { useUnreadStatus } from '../hooks/useUnreadStatus';
 
 // UserListSchemaとSettingSchemaからUserPerformanceDataへのマッピング関数
 const mapUserSchemaToUserPerformanceData = (
@@ -52,9 +53,11 @@ const mapUserSchemaToUserPerformanceData = (
 
   // roleのマッピング
   const roleMap: Record<string, "一般ユーザー" | "管理者ユーザー" | "プラットフォームオーナー"> = {
-    "0": "一般ユーザー",
+    "0": "一般ユーザー", //　無料プラン
     "1": "管理者ユーザー",
     "2": "プラットフォームオーナー",
+    "3": "一般ユーザー", //　無料プラン
+    "4": "一般ユーザー", // 有料プラン（roleとしては一般ユーザー扱い）
   };
 
   // 会社規模のマッピング（数値から文字列へ）
@@ -121,6 +124,7 @@ const mapUserSchemaToUserPerformanceData = (
     salesTargets: generateDefaultSalesTargets(),
     grossProfitMarginTarget: 40,
     operatingProfitMarginTarget: 20,
+    isPremium: userListSchema.role === "4",
   };
 };
 
@@ -158,11 +162,13 @@ const generateDefaultSalesTargets = (): SalesTarget[] => {
 
 const UserManagement: React.FC = () => {
   const navigate = useNavigate();
-  const { switchUser } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { switchUser, user: authUser } = useAuth();
   const [selectedUser, setSelectedUser] = useState<UserPerformanceData | null>(null);
   const [users, setUsers] = useState<UserPerformanceData[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const { unreadUserIds } = useUnreadStatus(authUser?.id ?? null);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -194,15 +200,28 @@ const UserManagement: React.FC = () => {
     fetchUsers();
   }, []);
 
-  const filteredAndSortedUsers = users.filter(
+  const filteredAndSortedUsers = users
+  .filter(
     (user) =>
       user.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.companyName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  )
+  .sort((a, b) => {
+    if (a.isPremium !== b.isPremium) return a.isPremium ? -1 : 1;
+    return new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime();
+  });
 
   const handleUserSelect = (user: UserPerformanceData) => {
     setSelectedUser(user);
+    navigate(`/userManagement?userId=${user.userId}`, { replace: true });
   };
+
+  useEffect(() => {
+    const userId = searchParams.get('userId');
+    if (!userId) {
+      setSelectedUser(null);
+    }
+  }, [searchParams]);
 
   // ユーザー詳細画面
   if (selectedUser) {
@@ -221,7 +240,10 @@ const UserManagement: React.FC = () => {
       <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-6 lg:px-8 py-6">
         <div className="flex items-center justify-between">
           <button
-            onClick={() => setSelectedUser(null)}
+            onClick={() => {
+              setSelectedUser(null);
+              navigate('/userManagement', { replace: true });
+            }}
             className="flex items-center space-x-2 text-[#13AE67] hover:text-[#13AE67]/80 transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
@@ -244,9 +266,21 @@ const UserManagement: React.FC = () => {
                 )}
               </div>
               <div>
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
-                  {selectedUser.userName || "未設定"}
-                </h2>
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+                    {selectedUser.userName || "未設定"}
+                  </h2>
+                  <span
+                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold"
+                    style={
+                      selectedUser.isPremium
+                        ? { background: "#F067A6", color: "#fff" }
+                        : { background: "#E5E7EB", color: "#6B7280" }
+                    }
+                  >
+                    {selectedUser.isPremium ? "PREMIUM" : "FREE"}
+                  </span>
+                </div>
                 <p className="text-sm text-gray-500">
                   {selectedUser.companyName || "会社名 未設定"}
                 </p>
@@ -279,7 +313,7 @@ const UserManagement: React.FC = () => {
                   navigate("/yearlyBudgetActual");
                 }}
                 className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                title="年次PL"
+                title="損益管理"
               >
                 <img
                   src={plIcon}
@@ -292,6 +326,21 @@ const UserManagement: React.FC = () => {
                   }}
                 />
               </button>
+              {/* 有料ユーザーのみ */}
+              {selectedUser.isPremium && (
+                <button
+                  onClick={() => { switchUser(selectedUser.userId); navigate("/support"); }}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  title="アドバイス・相談"
+                >
+                 <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center"
+                    style={{ background: "#13AE67" }}
+                  >
+                    <MessageCircle className="w-5 h-5" style={{ color: "#fff" }} />
+                  </div>
+                </button>
+              )}
             </div>
           </div>
 
@@ -442,7 +491,9 @@ const UserManagement: React.FC = () => {
             {filteredAndSortedUsers.map((user) => (
               <div
               key={user.userId}
-              className="card hover:shadow-lg transition-shadow cursor-pointer border-l-4 border-l-[#13AE67]"
+              className={`card hover:shadow-lg transition-shadow cursor-pointer border-l-4 ${
+                user.isPremium ? "border-l-[#F067A6]" : "border-l-[#13AE67]"
+              }`}
               onClick={() => handleUserSelect(user)}
             >
               <div className="flex items-start justify-between mb-4 gap-2">
@@ -459,9 +510,33 @@ const UserManagement: React.FC = () => {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h3 className="font-semibold text-text truncate">
-                      {user.userName}
-                    </h3>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <h3 className="font-semibold text-text truncate min-w-0 flex-1">
+                        {user.userName}
+                      </h3>
+                      {unreadUserIds.includes(user.userId) && (
+                        <span
+                        onClick={(e) => {
+                          e.stopPropagation(); // カードのクリックイベントを止める
+                          switchUser(user.userId);
+                          navigate(`/support?userId=${user.userId}`);
+                        }}
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 'bold',
+                          color: '#fff',
+                          backgroundColor: '#F067A6',
+                          borderRadius: '9999px',
+                          padding: '2px 6px',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        メッセージあり
+                      </span>
+                    )}
+                    </div>
                     <p className="text-sm text-text/70 truncate">{user.email}</p>
                     <p className="text-sm text-text/70 truncate">{user.companyName}</p>
                   </div>

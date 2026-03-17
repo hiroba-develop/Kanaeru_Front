@@ -2,6 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AdviceSchema } from '../models/AdviceSchema';
+import type { ApiSmallGoalsSmallGoalIdReorderPostRequest } from '../models/ApiSmallGoalsSmallGoalIdReorderPostRequest';
+import type { ApiSupportSendPost200Response } from '../models/ApiSupportSendPost200Response';
+import type { ApiSupportUnreadStatusGet200Response } from '../models/ApiSupportUnreadStatusGet200Response';
 import type { AvailabilitySchema } from '../models/AvailabilitySchema';
 import type { DmMessagesSchema } from '../models/DmMessagesSchema';
 import type { GrossProfitSchema } from '../models/GrossProfitSchema';
@@ -14,6 +18,7 @@ import type { OperatingProfitSchema } from '../models/OperatingProfitSchema';
 import type { ReservationSchema } from '../models/ReservationSchema';
 import type { SaleSchema } from '../models/SaleSchema';
 import type { SettingSchema } from '../models/SettingSchema';
+import type { SubscriptionSchema } from '../models/SubscriptionSchema';
 import type { UserListSchema } from '../models/UserListSchema';
 import type { UserSchema } from '../models/UserSchema';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -42,11 +47,13 @@ export class Service {
         name?: string;
         email?: string;
         userImageUrl?: string;
+        termsAgreedAt?: string;
         role?: string;
         /**
          * JWT認証トークン
          */
         token?: string;
+        lastLoginAt?: string;
     }> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -78,6 +85,30 @@ export class Service {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/auth/logout',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 利用規約同意
+     * ログイン直後の利用規約同意時使用、利用規約同意日時を更新
+     * responseStatusは成功時に1を返却、失敗時は0を返却
+     *
+     * @param requestBody
+     * @returns any 同意成功
+     * @throws ApiError
+     */
+    public static postApiAuthTermsAgree(
+        requestBody: {
+            userId?: string;
+            termsAgreedAt?: string;
+        },
+    ): CancelablePromise<{
+        responseStatus?: number;
+    }> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/auth/termsAgree',
             body: requestBody,
             mediaType: 'application/json',
         });
@@ -346,6 +377,7 @@ export class Service {
         responseStatus?: number;
         userSchema?: UserSchema;
         settingSchema?: SettingSchema;
+        subscriptionSchema?: SubscriptionSchema;
     }> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -611,24 +643,23 @@ export class Service {
     }
     /**
      * サポート画面 初期表示
-     * @param userId
      * @param selecteId
      * @returns any 取得成功
      * @throws ApiError
      */
     public static getApiSupport(
-        userId: string,
         selecteId: string,
     ): CancelablePromise<{
         responseStatus?: number;
         lastMessageSeq?: number;
         dmMessageSchema?: DmMessagesSchema;
+        dmMessagesSchemaList?: Array<DmMessagesSchema>;
+        adviceSchema?: Array<AdviceSchema>;
     }> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/support',
             query: {
-                'userId': userId,
                 'selecteId': selecteId,
             },
         });
@@ -636,7 +667,7 @@ export class Service {
     /**
      * サポート画面 メッセージ送信
      * @param requestBody
-     * @returns any 送信成功
+     * @returns ApiSupportSendPost200Response 送信成功
      * @throws ApiError
      */
     public static postApiSupportSend(
@@ -646,11 +677,7 @@ export class Service {
             content?: string;
             messageSeq?: number;
         },
-    ): CancelablePromise<{
-        responseStatus?: number;
-        lastMessageSeq?: number;
-        dmMessageSchema?: DmMessagesSchema;
-    }> {
+    ): CancelablePromise<ApiSupportSendPost200Response> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/support/send',
@@ -718,6 +745,112 @@ export class Service {
             url: '/api/support/stream',
             query: {
                 'userId': userId,
+            },
+        });
+    }
+    /**
+     * 未読状態取得
+     * @param userId
+     * @returns ApiSupportUnreadStatusGet200Response 成功
+     * @throws ApiError
+     */
+    public static apiSupportUnreadStatusGet(
+        userId: string,
+    ): CancelablePromise<ApiSupportUnreadStatusGet200Response> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/support/unread-status',
+            query: {
+                'userId': userId,
+            },
+        });
+    }
+    /**
+     * サポート画面 アドバイス取得
+     * @param userId
+     * @param year
+     * @param month
+     * @returns any 取得成功
+     * @throws ApiError
+     */
+    public static getApiSupportAdvice(
+        userId: string,
+        year?: number,
+        month?: number,
+    ): CancelablePromise<{
+        responseStatus?: number;
+        adviceSchema?: Array<AdviceSchema>;
+    }> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/support/advice',
+            query: {
+                'userId': userId,
+                'year': year,
+                'month': month,
+            },
+        });
+    }
+    /**
+     * サポート画面 アドバイス作成
+     * @param requestBody
+     * @returns any 作成成功
+     * @throws ApiError
+     */
+    public static postApiSupportAdviceCreate(
+        requestBody: {
+            userId?: string;
+            adviceContent?: string;
+        },
+    ): CancelablePromise<{
+        adviceId?: string;
+        responseStatus?: number;
+    }> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/support/advice/create',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * サポート画面 アドバイス更新
+     * @param requestBody
+     * @returns any 更新成功
+     * @throws ApiError
+     */
+    public static putApiSupportAdviceUpdate(
+        requestBody: {
+            adviceId?: string;
+            adviceContent?: string;
+        },
+    ): CancelablePromise<{
+        responseStatus?: number;
+    }> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/support/advice/update',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * サポート画面 アドバイス削除
+     * @param adviceId
+     * @returns any 削除成功
+     * @throws ApiError
+     */
+    public static deleteApiSupportAdviceDelete(
+        adviceId: string,
+    ): CancelablePromise<{
+        responseStatus?: number;
+        message?: string;
+    }> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/support/advice/delete',
+            query: {
+                'adviceId': adviceId,
             },
         });
     }
@@ -1560,6 +1693,30 @@ export class Service {
             path: {
                 'small_goal_id': smallGoalId,
             },
+        });
+    }
+    /**
+     * 小目標順番変更
+     * @param smallGoalId
+     * @param requestBody
+     * @returns any 変更成功
+     * @throws ApiError
+     */
+    public static postApiSmallGoalsReorder(
+        smallGoalId: string,
+        requestBody: ApiSmallGoalsSmallGoalIdReorderPostRequest,
+    ): CancelablePromise<{
+        responseStatus?: number;
+        message?: string;
+    }> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/small-goals/{small_goal_id}/reorder',
+            path: {
+                'small_goal_id': smallGoalId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
         });
     }
     /**

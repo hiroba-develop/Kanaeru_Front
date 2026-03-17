@@ -8,7 +8,7 @@ import level1Icon from "../assets/mandalaLevelIcon/level1.png";
 import level2Icon from "../assets/mandalaLevelIcon/level2.png";
 import level3Icon from "../assets/mandalaLevelIcon/level3.png";
 import {type MandalaCell, type PlMetric} from "../utils/mandalaIntegration";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, GripVertical } from "lucide-react";
 import complate_icon from "../assets/complate_icon.png";
 import heart_icon from "../assets/heart_icon.png";
 import { useAuth } from "../contexts/AuthContext";
@@ -280,6 +280,8 @@ const MandalaChart: React.FC = () => {
   const [selectedMiddleCellId, setSelectedMiddleCellId] = useState<string | null>(null);
   const [hoveredCellId, setHoveredCellId] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false); // アニメーション用
+  const dragIndexRef = useRef<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const [savedSmallCharts, setSavedSmallCharts] = useState<{[key: string]: MandalaSubChart}>({});
 
@@ -2214,85 +2216,85 @@ const MandalaChart: React.FC = () => {
     const chartId = Object.keys(smallCharts).find(key =>
       smallCharts[key].cells.some(c => c.id === cellId)
     );
-    if (!chartId) {
-      console.error('chartIdが見つかりません');
-      return;
-    }
-
+    if (!chartId) return;
+  
     const currentCell = smallCharts[chartId].cells.find(c => c.id === cellId);
-    if (!currentCell) {
-      console.error('currentCellが見つかりません');
-      return;
-    }
-
+    if (!currentCell) return;
+  
     const smallGoalId = currentCell.smallGoalId;
     const goal = currentCell.title;
-
-    // 中目標のmiddleGoalIdを取得
-    if (!selectedLargeCellId || !middleCharts[selectedLargeCellId]) {
-      console.error('selectedLargeCellIdまたはmiddleChartsが見つかりません');
-      return;
-    }
-
+  
+    if (!selectedLargeCellId || !middleCharts[selectedLargeCellId]) return;
     const middleChart = middleCharts[selectedLargeCellId];
     const middleCell = middleChart.cells.find(c => c.id === chartId);
     const middleGoalId = middleCell?.middleGoalId;
-
-    if (!middleGoalId) {
-      console.error('middleGoalIdが見つかりません');
-      return;
-    }
-
+    if (!middleGoalId) return;
+  
     const position = getSmallPosition(cellId);
-
+  
     try {
       if (smallGoalId) {
-        // smallGoalIdがある場合は更新APIを実行
+        // ★ 空文字の場合は削除APIを呼ぶ
+        if (!goal) {
+          const response = await Service.deleteApiSmallGoalsDelete(smallGoalId);
+          if (response.responseStatus === 1) {
+            const clearedCell = { ...currentCell, smallGoalId: undefined, title: "" };
+            setSmallCharts((prev) => ({
+              ...prev,
+              [chartId]: {
+                ...prev[chartId],
+                cells: prev[chartId].cells.map((c) =>
+                  c.id === cellId ? clearedCell : c
+                ),
+              },
+            }));
+            setSavedSmallCharts((prev) => ({
+              ...prev,
+              [chartId]: {
+                ...prev[chartId],
+                cells: prev[chartId].cells.map((c) =>
+                  c.id === cellId ? clearedCell : c
+                ),
+              },
+            }));
+          }
+          return;
+        }
+  
+        // 通常の更新処理
         const response = await Service.putApiSmallGoalsUpdate(
           smallGoalId,
-          {
-            position: position,
-            goal_title: goal,
-          }
+          { position, goal_title: goal }
         );
-
         if (response.responseStatus === 1) {
-          // 画面の状態を更新
           setSmallCharts((prev) => ({
             ...prev,
             [chartId]: {
               ...prev[chartId],
               cells: prev[chartId].cells.map((c) =>
-                c.id === cellId ? { ...c, smallGoalId: smallGoalId } : c
+                c.id === cellId ? { ...c, smallGoalId } : c
               ),
             },
           }));
-          // savedSmallChartsも更新
-          setSavedSmallCharts(prev => ({
+          setSavedSmallCharts((prev) => ({
             ...prev,
             [chartId]: {
               ...prev[chartId],
-              cells: prev[chartId].cells.map(c =>
-                c.id === cellId ? { ...currentCell, smallGoalId: smallGoalId } : c
-              )
-            }
+              cells: prev[chartId].cells.map((c) =>
+                c.id === cellId ? { ...currentCell, smallGoalId } : c
+              ),
+            },
           }));
-        } else {
-          console.error('小目標の更新に失敗しました');
         }
       } else {
-        // smallGoalIdがない場合は新規作成APIを実行
-        // パスパラメータはmiddleGoalIdを使用
+        // smallGoalIdがない かつ 空文字の場合は何もしない
+        if (!goal) return;
+  
         const response = await Service.postApiSmallGoalsCreate(
           middleGoalId,
-          {
-            position: position,
-            goal_title: goal,
-          }
+          { position, goal_title: goal }
         );
-
         if (response.responseStatus === 1) {
-          // 作成されたsmallGoalIdを保存
           const createdSmallGoalId = response.small_goal_id;
           if (createdSmallGoalId) {
             const updatedCell = { ...currentCell, smallGoalId: createdSmallGoalId };
@@ -2305,19 +2307,16 @@ const MandalaChart: React.FC = () => {
                 ),
               },
             }));
-            // savedSmallChartsも更新
-            setSavedSmallCharts(prev => ({
+            setSavedSmallCharts((prev) => ({
               ...prev,
               [chartId]: {
                 ...prev[chartId],
-                cells: prev[chartId].cells.map(c =>
+                cells: prev[chartId].cells.map((c) =>
                   c.id === cellId ? updatedCell : c
-                )
-              }
+                ),
+              },
             }));
           }
-        } else {
-          console.error('小目標の作成に失敗しました');
         }
       }
     } catch (error) {
@@ -2433,6 +2432,69 @@ const MandalaChart: React.FC = () => {
 
       updateMiddleAchievement(selectedMiddleCellId, updatedCells);
     }
+  };
+
+  const handleSmallGoalDragStart = (index: number) => {
+    dragIndexRef.current = index;
+  };
+
+  const handleSmallGoalDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragIndexRef.current !== null && dragIndexRef.current !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleSmallGoalDrop = async (index: number) => {
+    const fromIndex = dragIndexRef.current;
+    dragIndexRef.current = null;
+    setDragOverIndex(null);
+
+    if (fromIndex === null || fromIndex === index || !selectedMiddleCellId) return;
+
+    const oldCells = smallCharts[selectedMiddleCellId].cells;
+    const newCells = [...oldCells];
+
+    // 常にスワップ：
+    // - ドロップ先に目標がある場合 → 2つのセルを入れ替え
+    // - ドロップ先が空の場合 → 空スロットと入れ替え（他のpositionは変わらない）
+    [newCells[fromIndex], newCells[index]] = [newCells[index], newCells[fromIndex]];
+
+    setSmallCharts(prev => ({
+      ...prev,
+      [selectedMiddleCellId]: {
+        ...prev[selectedMiddleCellId],
+        cells: newCells,
+      },
+    }));
+
+    // 入れ替わった2つのセルのみAPI呼び出し（smallGoalIdがある場合のみ）
+    const reorderCalls: ReturnType<typeof Service.postApiSmallGoalsReorder>[] = [];
+
+    const movedToTarget = newCells[index];
+    if (movedToTarget.smallGoalId) {
+      reorderCalls.push(
+        Service.postApiSmallGoalsReorder(movedToTarget.smallGoalId, { position: index + 1 })
+      );
+    }
+
+    const movedToFrom = newCells[fromIndex];
+    if (movedToFrom.smallGoalId) {
+      reorderCalls.push(
+        Service.postApiSmallGoalsReorder(movedToFrom.smallGoalId, { position: fromIndex + 1 })
+      );
+    }
+
+    try {
+      await Promise.all(reorderCalls);
+    } catch (error) {
+      console.error('小目標の並び替えに失敗しました:', error);
+    }
+  };
+
+  const handleSmallGoalDragEnd = () => {
+    dragIndexRef.current = null;
+    setDragOverIndex(null);
   };
 
   const updateMiddleAchievement = (
@@ -3260,9 +3322,12 @@ const MandalaChart: React.FC = () => {
                 const cellChanged = isSmallCellChanged(cell.id);
                 const delay = (index + 1) * 80;
 
+                const isDragOver = dragOverIndex === index;
+
                 return (
                   <div
                     key={cell.id}
+                    draggable={canEdit}
                     className={`flex items-center transition-all duration-500 relative group ${
                       isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-8'
                     }`}
@@ -3271,14 +3336,26 @@ const MandalaChart: React.FC = () => {
                       maxWidth: '660px',
                       height: 'clamp(40px, 8vw, 48px)',
                       borderRadius: 'clamp(12px, 3vw, 20px)',
-                      background: cellChanged ? 'rgba(19, 174, 103, 0.05)' : '#FFFFFF',
-                      boxShadow: '0px 4px 12px 0px rgba(72, 82, 84, 0.1)',
+                      background: isDragOver
+                        ? 'rgba(19, 174, 103, 0.08)'
+                        : cellChanged
+                        ? 'rgba(19, 174, 103, 0.05)'
+                        : '#FFFFFF',
+                      boxShadow: isDragOver
+                        ? '0px 4px 16px 0px rgba(19, 174, 103, 0.25)'
+                        : '0px 4px 12px 0px rgba(72, 82, 84, 0.1)',
+                      border: isDragOver ? '2px solid rgba(19, 174, 103, 0.4)' : '2px solid transparent',
                       padding: 'clamp(6px, 1.5vw, 8px) clamp(8px, 2vw, 12px)',
                       gap: 'clamp(8px, 2vw, 12px)',
-                      transitionDelay: `${delay}ms`
+                      transitionDelay: `${delay}ms`,
+                      cursor: canEdit ? 'default' : undefined,
                     }}
                     onMouseEnter={() => setHoveredCellId(cell.id)}
                     onMouseLeave={() => setHoveredCellId(null)}
+                    onDragStart={() => handleSmallGoalDragStart(index)}
+                    onDragOver={(e) => handleSmallGoalDragOver(e, index)}
+                    onDrop={() => handleSmallGoalDrop(index)}
+                    onDragEnd={handleSmallGoalDragEnd}
                   >
                     {isCellHovered && !cell.title && canEdit && (  // ★ canEdit条件を追加
                       <div
@@ -3297,7 +3374,18 @@ const MandalaChart: React.FC = () => {
                         どんな目標にする？
                       </div>
                     )}
-                    
+
+                    {canEdit && (
+                      <GripVertical
+                        className="flex-shrink-0 text-gray-300 group-hover:text-gray-400 transition-colors duration-200"
+                        style={{
+                          width: 'clamp(14px, 2.5vw, 16px)',
+                          height: 'clamp(14px, 2.5vw, 16px)',
+                          cursor: 'grab',
+                        }}
+                      />
+                    )}
+
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

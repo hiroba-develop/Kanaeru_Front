@@ -1,12 +1,28 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { Navigate, Link, useLocation } from "react-router-dom"; // ★★★ useLocation追加 ★★★
+import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import CryptoJS from "crypto-js";
 import { Service } from "../api/services/Service";
 
 const Login: React.FC = () => {
   const { user, isLoading, login, sessionExpired, clearSessionExpired } = useAuth();
-  const location = useLocation(); // ★★★ 追加 ★★★
+  const location = useLocation(); 
+  const navigate = useNavigate();
+
+  // マウント時点（useEffect より前）でログアウトフラグを取得する
+  // useEffect が sessionStorage を削除するより先に読み取ることで
+  // 「明示的なログアウト後のログイン」と「URLから直接アクセス」を正しく区別する
+  const [wasLoggedOut] = useState(() => sessionStorage.getItem("loggedOut") === "true");
+
+  // ログアウト後はstateをクリアする
+  useEffect(() => {
+    const loggedOut = sessionStorage.getItem("loggedOut");
+    if (loggedOut) {
+      sessionStorage.removeItem("loggedOut");
+      // stateをクリアして同じURLに置き換え
+      navigate("/login", { replace: true, state: null });
+    }
+  }, []);
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -57,15 +73,24 @@ const Login: React.FC = () => {
 
   // すでにログイン済みの場合はリダイレクト
   if (user && !isLoading) {
+    const from = (location.state as { from?: { pathname: string; search: string } })?.from;
+    // 明示的なログアウト後は from を無視する
+    const isFromSupport = !wasLoggedOut && from?.pathname === '/support';
+    // 管理者はパラメーターを含む元のURLへ
+    const adminFromPath = isFromSupport
+      ? `${from!.pathname}${from!.search}`
+      : null;
+
     if (user.role === "1") {
-      return <Navigate to="/userManagement" replace />;
+      return <Navigate to={adminFromPath ?? "/userManagement"} replace />;
+    } else if (user.role === "2") {
+      return <Navigate to={adminFromPath ?? "/adminUserManagement"} replace />;
+    } else if (user.role === "4") {
+      // 有料一般ユーザーはサポート画面へのリンクから来た場合も自分の画面のみ
+      return <Navigate to={isFromSupport ? "/support" : "/"} replace />;
     }
-    return (
-      <Navigate
-        to={user.isSetupComplete ? "/mandalaChart" : "/setup"}
-        replace
-      />
-    );
+    // role:0/3（無料ユーザー）はサポート画面に入れないため from は無視
+    return <Navigate to={user.isSetupComplete ? "/" : "/setup"} replace />;
   }
 
   const handleEmailLogin = async (e: React.FormEvent) => {
@@ -97,18 +122,32 @@ const Login: React.FC = () => {
           response.role,
           response.token,
           response.name,
-          response.userImageUrl
+          response.userImageUrl,
+          response.termsAgreedAt,
+          response.lastLoginAt
         );
 
+        const from = (location.state as { from?: { pathname: string; search: string } })?.from;
+        // 明示的なログアウト後は from を無視する（wasLoggedOut はマウント時に取得済み）
+        const isFromSupport = !wasLoggedOut && from?.pathname === '/support';
+        // 管理者（role:1/2）はパラメーターを含む元のURLへ、それ以外はパラメーター無し
+        const adminFromPath = isFromSupport
+          ? `${from!.pathname}${from!.search}`
+          : null;
+
         if (response.role === "1") {
-          window.location.href = "/userManagement";
+          navigate(adminFromPath ?? "/userManagement", { replace: true });
           return;
         } else if (response.role === "2") {
-          window.location.href = "/adminUserManagement";
+          navigate(adminFromPath ?? "/adminUserManagement", { replace: true });
+          return;
+        } else if (response.role === "4") {
+          // 有料一般ユーザーはサポート画面へのリンクから来た場合も自分の画面のみ
+          navigate(isFromSupport ? "/support" : "/", { replace: true });
           return;
         } else {
-          // ★★★ 一般ユーザーの遷移先：HOME ★★★
-          window.location.href = "/";
+          // role:0/3（無料ユーザー）はサポート画面へのアクセス不可
+          navigate("/", { replace: true });
           return;
         }
       } else {

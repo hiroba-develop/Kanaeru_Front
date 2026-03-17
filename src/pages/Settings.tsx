@@ -1,25 +1,27 @@
 import React, { useState, useEffect } from "react";
-import { Save, User, Building, Lock, UserX } from "lucide-react"; 
+import { Save, User, Building, Lock, UserX } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { Service } from "../api/services/Service";
+import { StripeService } from "../api/services/StripeService";
 import { withErrorHandling } from "../utils/apiErrorHandler";
-import { OpenAPI } from "../api/core/OpenAPI";
 import CryptoJS from "crypto-js";
+import PlanselectModal, { type PlanId } from "../components/PlanselectModal";
 import type {
   InitialSetup,
   CompanySize,
   Industry,
   FinancialKnowledge,
 } from "../types";
+import type { SubscriptionSchema } from "../api/models/SubscriptionSchema";
 
 const Settings: React.FC = () => {
-  const { user, updateUserSetup, updateUser, logout  } = useAuth();
+  const { user, updateUserSetup, updateUser, logout, handlePlanUpgrade } = useAuth();
   const isNotNormalAccount = user?.role === "1" || user?.role === "2";
 
-  // 初期設定データの状態管理
   const [setupData, setSetupData] = useState<InitialSetup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionSchema | null>(null);
 
   const [userInfo, setUserInfo] = useState({
     name: "",
@@ -27,13 +29,11 @@ const Settings: React.FC = () => {
     phone: "",
   });
 
-  // バリデーションエラー用のstate
   const [validationErrors, setValidationErrors] = useState<{
     userName?: string;
     email?: string;
   }>({});
 
-  // パスワード変更用のstate
   const [passwordData, setPasswordData] = useState({
     currentPassword: "",
     newPassword: "",
@@ -44,7 +44,14 @@ const Settings: React.FC = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showNewPasswordConfirm, setShowNewPasswordConfirm] = useState(false);
 
-  // オプション定義
+  // モーダル用state
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [showWithdrawalModal, setShowWithdrawalModal] = useState(false);
+  const [showWithdrawalConfirmModal, setShowWithdrawalConfirmModal] = useState(false);
+
   const companyTypes: CompanySize[] = [
     "個人事業主",
     "法人（従業員1-5名）",
@@ -73,7 +80,6 @@ const Settings: React.FC = () => {
     "上級レベル",
   ];
 
-  // 数値から選択肢へのマッピング関数
   const getCompanySizeFromNumber = (size: number): CompanySize => {
     const mapping: { [key: number]: CompanySize } = {
       1: "個人事業主",
@@ -101,9 +107,7 @@ const Settings: React.FC = () => {
     return mapping[industry] || "その他";
   };
 
-  const getFinancialKnowledgeFromNumber = (
-    knowledge: number
-  ): FinancialKnowledge => {
+  const getFinancialKnowledgeFromNumber = (knowledge: number): FinancialKnowledge => {
     const mapping: { [key: number]: FinancialKnowledge } = {
       1: "初心者",
       2: "基本レベル",
@@ -113,67 +117,43 @@ const Settings: React.FC = () => {
     return mapping[knowledge] || "初心者";
   };
 
-  // 文字列を数値に変換するヘルパー関数
   const getCompanySizeNumber = (size: string): number => {
     switch (size) {
-      case "個人事業主":
-        return 1;
-      case "法人（従業員1-5名）":
-        return 2;
-      case "法人（従業員6-20名）":
-        return 3;
-      case "法人（従業員21名以上）":
-        return 4;
-      default:
-        return 1;
+      case "個人事業主": return 1;
+      case "法人（従業員1-5名）": return 2;
+      case "法人（従業員6-20名）": return 3;
+      case "法人（従業員21名以上）": return 4;
+      default: return 1;
     }
   };
 
   const getIndustryNumber = (industry: string): number => {
     switch (industry) {
-      case "IT・ソフトウェア":
-        return 1;
-      case "製造業":
-        return 2;
-      case "小売業":
-        return 3;
-      case "飲食業":
-        return 4;
-      case "サービス業":
-        return 5;
-      case "建設業":
-        return 6;
-      case "医療・福祉":
-        return 7;
-      case "教育":
-        return 8;
-      case "金融・保険":
-        return 9;
-      case "不動産":
-        return 10;
-      case "その他":
-        return 11;
-      default:
-        return 1;
+      case "IT・ソフトウェア": return 1;
+      case "製造業": return 2;
+      case "小売業": return 3;
+      case "飲食業": return 4;
+      case "サービス業": return 5;
+      case "建設業": return 6;
+      case "医療・福祉": return 7;
+      case "教育": return 8;
+      case "金融・保険": return 9;
+      case "不動産": return 10;
+      case "その他": return 11;
+      default: return 1;
     }
   };
 
   const getFinancialKnowledgeNumber = (knowledge: string): number => {
     switch (knowledge) {
-      case "初心者":
-        return 1;
-      case "基本レベル":
-        return 2;
-      case "中級レベル":
-        return 3;
-      case "上級レベル":
-        return 4;
-      default:
-        return 1;
+      case "初心者": return 1;
+      case "基本レベル": return 2;
+      case "中級レベル": return 3;
+      case "上級レベル": return 4;
+      default: return 1;
     }
   };
 
-  // Cookieを操作するためのユーティリティ関数
   const getCookie = (name: string): string | null => {
     const nameEQ = name + "=";
     const ca = document.cookie.split(";");
@@ -185,41 +165,26 @@ const Settings: React.FC = () => {
     return null;
   };
 
-  // パスワードをSHA-256でハッシュ化
   const sha256 = (text: string): string => {
     return CryptoJS.SHA256(text).toString(CryptoJS.enc.Hex);
   };
 
-  // パスワードのバリデーション
-  const validatePassword = (
-    password: string
-  ): { isValid: boolean; message: string } => {
+  const validatePassword = (password: string): { isValid: boolean; message: string } => {
     if (password.length < 8) {
-      return {
-        isValid: false,
-        message: "パスワードは8文字以上で入力してください",
-      };
+      return { isValid: false, message: "パスワードは8文字以上で入力してください" };
     }
-
     const hasNumber = /[0-9]/.test(password);
     const hasLetter = /[a-zA-Z]/.test(password);
-
     if (!hasNumber || !hasLetter) {
-      return {
-        isValid: false,
-        message: "パスワードは英字と数字の両方を含む必要があります",
-      };
+      return { isValid: false, message: "パスワードは英字と数字の両方を含む必要があります" };
     }
-
     return { isValid: true, message: "" };
   };
 
-  // パスワードの一致チェック
   const checkPasswordMatch = (): boolean => {
     return passwordData.newPassword === passwordData.newPasswordConfirm;
   };
 
-  // 名前のバリデーション
   const validateUserName = (userName: string): { isValid: boolean; message: string } => {
     if (!userName.trim()) {
       return { isValid: false, message: "ユーザー名を入力してください" };
@@ -227,22 +192,17 @@ const Settings: React.FC = () => {
     return { isValid: true, message: "" };
   };
 
-  // メールアドレスのバリデーション
   const validateEmail = (email: string): { isValid: boolean; message: string } => {
     if (!email.trim()) {
       return { isValid: false, message: "メールアドレスを入力してください" };
     }
-
-    // メールアドレスの形式チェック
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailPattern.test(email)) {
       return { isValid: false, message: "正しいメールアドレスを入力してください" };
     }
-
     return { isValid: true, message: "" };
   };
 
-  // 設定データを初期化
   useEffect(() => {
     const loadSettingData = async () => {
       if (!user?.id) {
@@ -253,7 +213,6 @@ const Settings: React.FC = () => {
 
       try {
         setLoading(true);
-
         const response = await Service.getApiSettingUser(user.id);
 
         if (!response.userSchema) {
@@ -264,14 +223,14 @@ const Settings: React.FC = () => {
         const userSchema = response.userSchema;
         const settingSchema = response.settingSchema;
 
-        // ユーザー情報を設定
+        setSubscriptionInfo(response.subscriptionSchema ?? null);
+
         setUserInfo({
           name: userSchema.name || "",
           email: userSchema.email || "",
           phone: "",
         });
 
-        // 設定データを変換して設定
         const convertedSetupData: InitialSetup = {
           userName: userSchema.name || "",
           email: userSchema.email || "",
@@ -285,14 +244,11 @@ const Settings: React.FC = () => {
           industry: settingSchema?.industry
             ? getIndustryFromNumber(Number(settingSchema.industry))
             : "その他",
-          fiscalYearStartYear:
-            settingSchema?.fiscalYearStartYear || new Date().getFullYear(),
+          fiscalYearStartYear: settingSchema?.fiscalYearStartYear || new Date().getFullYear(),
           fiscalYearStartMonth: settingSchema?.fiscalYearStartMonth || 4,
           currentAssets: 0,
           financialKnowledge: settingSchema?.financialKnowledge
-            ? getFinancialKnowledgeFromNumber(
-                Number(settingSchema.financialKnowledge)
-              )
+            ? getFinancialKnowledgeFromNumber(Number(settingSchema.financialKnowledge))
             : "初心者",
           capital: settingSchema?.capital || 0,
         };
@@ -315,10 +271,8 @@ const Settings: React.FC = () => {
       return;
     }
 
-    // バリデーションエラーをクリア
     setValidationErrors({});
 
-    // 名前のバリデーション（会員登録時と同じ）
     const userNameToValidate = userInfo.name.trim() || setupData.userName.trim();
     const userNameValidation = validateUserName(userNameToValidate);
     if (!userNameValidation.isValid) {
@@ -327,7 +281,6 @@ const Settings: React.FC = () => {
       return;
     }
 
-    // メールアドレスのバリデーション（会員登録時と同じ）
     const emailToSend = userInfo.email.trim() || setupData.email || "";
     const emailValidation = validateEmail(emailToSend);
     if (!emailValidation.isValid) {
@@ -339,7 +292,6 @@ const Settings: React.FC = () => {
     try {
       setLoading(true);
 
-      // UserSchemaとSettingSchemaに分けてリクエストボディを作成
       const nameToSend = userInfo.name.trim() || setupData.userName.trim();
       const requestBody = {
         userSchema: {
@@ -353,88 +305,61 @@ const Settings: React.FC = () => {
           companySize: getCompanySizeNumber(setupData.companySize).toString(),
           industry: getIndustryNumber(setupData.industry).toString(),
           capital: setupData.capital || 0,
-          financialKnowledge: getFinancialKnowledgeNumber(
-            setupData.financialKnowledge
-          ).toString(),
+          financialKnowledge: getFinancialKnowledgeNumber(setupData.financialKnowledge).toString(),
           fiscalYearStartYear: setupData.fiscalYearStartYear,
           fiscalYearStartMonth: setupData.fiscalYearStartMonth,
         },
       };
 
-      // APIを呼び出して設定を更新（エラーハンドリング付き）
       const response = await withErrorHandling(() =>
         Service.putApiSettingUpdateUser(requestBody)
       );
 
       if (response.responseStatus === 1) {
-        // APIレスポンスから返ってきたデータで状態を更新
         if (setupData) {
           const updatedSetupData: InitialSetup = { ...setupData };
-      
-          // userSchemaの更新
+
           if (response.userSchema) {
-            // APIレスポンスの値で更新
             const updatedEmail = response.userSchema.email || emailToSend;
             const updatedName = response.userSchema.name || nameToSend;
             const updatedCompany = response.userSchema.company || updatedSetupData.companyName;
-            
-            setUserInfo({
-              name: updatedName,
-              email: updatedEmail,
-              phone: userInfo.phone,
-            });
-      
-            // setupDataのuserSchema関連フィールドを更新
+
+            setUserInfo({ name: updatedName, email: updatedEmail, phone: userInfo.phone });
+
             updatedSetupData.userName = updatedName;
             updatedSetupData.email = updatedEmail;
             updatedSetupData.companyName = updatedCompany;
-      
-            // ★★★ 追加: AuthContextのユーザー情報を更新 ★★★
-            updateUser({
-              name: updatedName,
-              email: updatedEmail,
-            });
+
+            updateUser({ name: updatedName, email: updatedEmail });
           }
-      
-          // settingSchemaの更新
+
           if (response.settingSchema) {
             updatedSetupData.companySize = response.settingSchema.companySize
-              ? getCompanySizeFromNumber(
-                  Number(response.settingSchema.companySize)
-                )
+              ? getCompanySizeFromNumber(Number(response.settingSchema.companySize))
               : updatedSetupData.companySize;
             updatedSetupData.industry = response.settingSchema.industry
               ? getIndustryFromNumber(Number(response.settingSchema.industry))
               : updatedSetupData.industry;
-            updatedSetupData.capital =
-              response.settingSchema.capital ?? updatedSetupData.capital;
-            updatedSetupData.financialKnowledge =
-              response.settingSchema.financialKnowledge
-                ? getFinancialKnowledgeFromNumber(
-                    Number(response.settingSchema.financialKnowledge)
-                  )
-                : updatedSetupData.financialKnowledge;
+            updatedSetupData.capital = response.settingSchema.capital ?? updatedSetupData.capital;
+            updatedSetupData.financialKnowledge = response.settingSchema.financialKnowledge
+              ? getFinancialKnowledgeFromNumber(Number(response.settingSchema.financialKnowledge))
+              : updatedSetupData.financialKnowledge;
             updatedSetupData.fiscalYearStartYear =
-              response.settingSchema.fiscalYearStartYear ??
-              updatedSetupData.fiscalYearStartYear;
+              response.settingSchema.fiscalYearStartYear ?? updatedSetupData.fiscalYearStartYear;
             updatedSetupData.fiscalYearStartMonth =
-              response.settingSchema.fiscalYearStartMonth ??
-              updatedSetupData.fiscalYearStartMonth;
+              response.settingSchema.fiscalYearStartMonth ?? updatedSetupData.fiscalYearStartMonth;
           }
-      
-          // 状態を一度だけ更新
+
           setSetupData(updatedSetupData);
           updateUserSetup(updatedSetupData);
         }
-      
+
         alert("設定を保存しました");
       } else {
         throw new Error("設定の保存に失敗しました");
       }
     } catch (err) {
       console.error("設定保存エラー:", err);
-      // withErrorHandlingが既にエラーハンドリングを行っているため、
-      // ここでは追加のエラーメッセージは不要
       if (err instanceof Error && !err.message.includes("401")) {
         alert("設定の保存中にエラーが発生しました");
       }
@@ -444,23 +369,19 @@ const Settings: React.FC = () => {
   };
 
   const handleChangePassword = async () => {
-    // パスワード変更のバリデーション
     if (!passwordData.currentPassword) {
       alert("現在のパスワードを入力してください");
       return;
     }
-
     if (!passwordData.newPassword) {
       alert("新しいパスワードを入力してください");
       return;
     }
-
     const validation = validatePassword(passwordData.newPassword);
     if (!validation.isValid) {
       alert(validation.message);
       return;
     }
-
     if (!checkPasswordMatch()) {
       alert("新しいパスワードが一致しません");
       return;
@@ -469,7 +390,6 @@ const Settings: React.FC = () => {
     try {
       setLoading(true);
 
-      // 認証トークンを取得してOpenAPIに設定
       const token = getCookie("authToken");
       if (!token) {
         alert("認証トークンが取得できません。再度ログインしてください。");
@@ -477,36 +397,25 @@ const Settings: React.FC = () => {
         return;
       }
 
-      // パスワードをハッシュ化
       const currentPasswordHash = sha256(passwordData.currentPassword);
       const newPasswordHash = sha256(passwordData.newPassword);
 
-      // APIを呼び出してパスワードを変更
       const response = await withErrorHandling(() =>
         Service.putApiAuthUpdatePassword({
-          currentPasswordHash: currentPasswordHash,
-          newPasswordHash: newPasswordHash,
+          currentPasswordHash,
+          newPasswordHash,
         })
       );
 
       if (response.responseStatus === 1) {
         alert("パスワードを変更しました");
-
-        // フォームをリセット
-        setPasswordData({
-          currentPassword: "",
-          newPassword: "",
-          newPasswordConfirm: "",
-        });
+        setPasswordData({ currentPassword: "", newPassword: "", newPasswordConfirm: "" });
       } else {
-        // responseStatusが0の場合、バックエンド側で処理が失敗
         const errorMessage = response.message || "パスワードの変更に失敗しました";
         throw new Error(errorMessage);
       }
     } catch (err) {
       console.error("パスワード変更エラー:", err);
-      
-      // ユーザーフレンドリーなエラーメッセージ
       let errorMessage = "パスワードの変更中にエラーが発生しました";
       if (err instanceof Error) {
         if (err.message.includes("401") || err.message.includes("403")) {
@@ -519,7 +428,6 @@ const Settings: React.FC = () => {
           errorMessage = err.message || errorMessage;
         }
       }
-      
       alert(errorMessage);
     } finally {
       setLoading(false);
@@ -531,37 +439,24 @@ const Settings: React.FC = () => {
       alert("ユーザー情報が取得できません");
       return;
     }
+    setShowWithdrawalConfirmModal(true);
+  };
 
-    // 確認ダイアログ
-    const confirmDelete  = window.confirm(
-      "本当に退会しますか？\n\nこの操作は取り消すことができません。\nすべてのデータが削除されます。"
-    );
-  
-    if (!confirmDelete) return;
-  
+  const handleDeleteAccountConfirmed = async () => {
+    setShowWithdrawalConfirmModal(false);
+    if (!user?.id) return;
     try {
       setLoading(true);
-  
-      // 退会API呼び出し
       const response = await withErrorHandling(() =>
         Service.deleteApiDeleteAccount(user.id)
       );
-  
-  
       if (response.responseStatus === 1) {
-        alert("退会処理が完了しました。ご利用ありがとうございました。");
-        
-        // 通常のログアウト処理を使用（sessionExpiredフラグは立てない）
-        await logout();
-        
-        // ログイン画面にリダイレクト（退会処理後であることを示すパラメータを追加）
-        window.location.href = "/login?reason=withdrawal";
+        setShowWithdrawalModal(true);
       } else {
         throw new Error("退会処理に失敗しました");
       }
     } catch (err) {
       console.error("退会処理エラー:", err);
-      
       let errorMessage = "退会処理中にエラーが発生しました";
       if (err instanceof Error) {
         if (err.message.includes("401") || err.message.includes("403")) {
@@ -572,10 +467,54 @@ const Settings: React.FC = () => {
           errorMessage = err.message || errorMessage;
         }
       }
-      
       alert(errorMessage);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePlanComplete = async (plan: PlanId) => {
+    if (plan === "paid") {
+      handlePlanUpgrade();
+      setShowUpgradeModal(true);
+      setShowPlanModal(false); // キャンセルAPIは呼ばない
+    } else {
+      await handlePlanModalClose(); // 無料プランの場合はキャンセルAPI実行
+    }
+  };
+  // 途中でキャンセルした場合
+  const handlePlanModalClose = async () => {
+    setShowPlanModal(false);
+    // incomplete状態のサブスクリプションがあればキャンセル
+    if (user) {
+      try {
+        await StripeService.postApiStripeSubscriptionCancelIncomplete(user.id);
+      } catch (err: any) {
+        // 404はサブスクリプション未作成のため無視
+        if (err?.status !== 404) {
+          console.error("Stripeキャンセルエラー:", err);
+        }
+      }
+    }
+  };
+  // 解約モーダル
+  const handleCancelSubscription = async () => {
+    if (!user?.id) return;
+    try {
+      setCancelLoading(true);
+      await StripeService.postApiStripeSubscriptionCancel(user.id);
+      setShowCancelModal(false);
+      
+      // サブスクリプション情報を再取得
+      const response = await Service.getApiSettingUser(user.id);
+      setSubscriptionInfo(response.subscriptionSchema ?? null);
+      
+      alert("解約手続きが完了しました。現在の契約期間終了まで引き続きご利用いただけます。");
+    } catch (err) {
+      console.error("解約エラー:", err);
+      alert("解約処理中にエラーが発生しました。");
+    } finally {
+      setCancelLoading(false);
     }
   };
 
@@ -598,10 +537,7 @@ const Settings: React.FC = () => {
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center">
             <p className="text-red-500">{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 btn-primary"
-            >
+            <button onClick={() => window.location.reload()} className="mt-4 btn-primary">
               再読み込み
             </button>
           </div>
@@ -642,28 +578,18 @@ const Settings: React.FC = () => {
             <div className="card mb-6">
               <div className="flex items-center space-x-2 mb-4">
                 <Building className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-                <h3 className="text-base sm:text-lg font-semibold text-text">
-                  基本情報
-                </h3>
+                <h3 className="text-base sm:text-lg font-semibold text-text">基本情報</h3>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm text-text/70 mb-2">
-                    会社規模
-                  </label>
+                  <label className="block text-sm text-text/70 mb-2">会社規模</label>
                   <select
                     value={setupData.companySize}
-                    onChange={(e) =>
-                      setSetupData({
-                        ...setupData,
-                        companySize: e.target.value as CompanySize,
-                      })
-                    }
+                    onChange={(e) => setSetupData({ ...setupData, companySize: e.target.value as CompanySize })}
                     className="input-field w-full pr-8 appearance-none bg-white"
                     style={{
-                      backgroundImage:
-                        'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
+                      backgroundImage: 'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
                       backgroundRepeat: "no-repeat",
                       backgroundPosition: "calc(100% - 4px) center",
                       backgroundSize: "16px",
@@ -671,29 +597,19 @@ const Settings: React.FC = () => {
                     disabled={isNotNormalAccount}
                   >
                     {companyTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
+                      <option key={type} value={type}>{type}</option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm text-text/70 mb-2">
-                    業界
-                  </label>
+                  <label className="block text-sm text-text/70 mb-2">業界</label>
                   <select
                     value={setupData.industry}
-                    onChange={(e) =>
-                      setSetupData({
-                        ...setupData,
-                        industry: e.target.value as Industry,
-                      })
-                    }
+                    onChange={(e) => setSetupData({ ...setupData, industry: e.target.value as Industry })}
                     className="input-field w-full pr-8 appearance-none bg-white"
                     style={{
-                      backgroundImage:
-                        'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
+                      backgroundImage: 'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
                       backgroundRepeat: "no-repeat",
                       backgroundPosition: "calc(100% - 4px) center",
                       backgroundSize: "16px",
@@ -701,29 +617,19 @@ const Settings: React.FC = () => {
                     disabled={isNotNormalAccount}
                   >
                     {industries.map((industry) => (
-                      <option key={industry} value={industry}>
-                        {industry}
-                      </option>
+                      <option key={industry} value={industry}>{industry}</option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm text-text/70 mb-2">
-                    財務知識レベル
-                  </label>
+                  <label className="block text-sm text-text/70 mb-2">財務知識レベル</label>
                   <select
                     value={setupData.financialKnowledge}
-                    onChange={(e) =>
-                      setSetupData({
-                        ...setupData,
-                        financialKnowledge: e.target.value as FinancialKnowledge,
-                      })
-                    }
+                    onChange={(e) => setSetupData({ ...setupData, financialKnowledge: e.target.value as FinancialKnowledge })}
                     className="input-field w-full pr-8 appearance-none bg-white"
                     style={{
-                      backgroundImage:
-                        'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
+                      backgroundImage: 'url(\'data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>\')',
                       backgroundRepeat: "no-repeat",
                       backgroundPosition: "calc(100% - 4px) center",
                       backgroundSize: "16px",
@@ -731,19 +637,15 @@ const Settings: React.FC = () => {
                     disabled={isNotNormalAccount}
                   >
                     {knowledgeOptions.map((knowledge) => (
-                      <option key={knowledge} value={knowledge}>
-                        {knowledge}
-                      </option>
+                      <option key={knowledge} value={knowledge}>{knowledge}</option>
                     ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-sm text-text/70 mb-2">
-                    事業年度開始年月
-                  </label>
+                  <label className="block text-sm text-text/70 mb-2">事業年度開始年月</label>
                   <p className="text-text font-medium">
-                    {setupData.fiscalYearStartYear || new Date().getFullYear()}
-                    年{setupData.fiscalYearStartMonth}月
+                    {setupData.fiscalYearStartYear || new Date().getFullYear()}年{setupData.fiscalYearStartMonth}月
                   </p>
                 </div>
               </div>
@@ -751,50 +653,37 @@ const Settings: React.FC = () => {
           </>
         )}
 
-        <div
-          className={`grid grid-cols-1 ${
-            isNotNormalAccount ? "" : "xl:grid-cols-1"
-          } gap-6`}
-        >
+        <div className={`grid grid-cols-1 ${isNotNormalAccount ? "" : "xl:grid-cols-1"} gap-6`}>
           {!isNotNormalAccount && <></>}
-          {/* ユーザー情報設定 */}
+
+          {/* ユーザー情報 */}
           <div className="card">
             <div className="flex items-center space-x-2 mb-4">
               <User className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-              <h3 className="text-base sm:text-lg font-semibold text-text">
-                ユーザー情報
-              </h3>
+              <h3 className="text-base sm:text-lg font-semibold text-text">ユーザー情報</h3>
             </div>
 
-            {/* ★★★ formタグで囲む（autocomplete="off"を追加） ★★★ */}
             <form autoComplete="off" onSubmit={(e) => e.preventDefault()}>
-            <div className="space-y-4">
-              {user?.role === "0" && (
-                <div>
-                  <label className="block text-sm text-text/70 mb-2 ">
-                    会社名
-                  </label>
-                  <input
-                    type="text"
-                    name="company"
-                    autoComplete="off"
-                    value={setupData.companyName || ""}
-                    onChange={(e) =>
-                      setSetupData({
-                        ...setupData,
-                        companyName: e.target.value,
-                      })
-                    }
-                    className="input-field w-full"
-                    placeholder="会社名を入力してください"
-                    disabled={isNotNormalAccount}
-                    maxLength={50}
-                  />
-                  <p className="text-xs text-gray-500 mt-1 text-right">
-                    {setupData.companyName?.length || 0}/50文字
-                  </p>
-                </div>
-              )}
+              <div className="space-y-4">
+                {user?.role === "0" && (
+                  <div>
+                    <label className="block text-sm text-text/70 mb-2">会社名</label>
+                    <input
+                      type="text"
+                      name="company"
+                      autoComplete="off"
+                      value={setupData.companyName || ""}
+                      onChange={(e) => setSetupData({ ...setupData, companyName: e.target.value })}
+                      className="input-field w-full"
+                      placeholder="会社名を入力してください"
+                      disabled={isNotNormalAccount}
+                      maxLength={50}
+                    />
+                    <p className="text-xs text-gray-500 mt-1 text-right">
+                      {setupData.companyName?.length || 0}/50文字
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm text-text/70 mb-1">
@@ -808,28 +697,20 @@ const Settings: React.FC = () => {
                     maxLength={50}
                     onChange={(e) => {
                       setUserInfo({ ...userInfo, name: e.target.value });
-                      if (setupData) {
-                        setSetupData({ ...setupData, userName: e.target.value });
-                      }
-                      if (validationErrors.userName) {
-                        setValidationErrors({ ...validationErrors, userName: undefined });
-                      }
+                      if (setupData) setSetupData({ ...setupData, userName: e.target.value });
+                      if (validationErrors.userName) setValidationErrors({ ...validationErrors, userName: undefined });
                     }}
-                    className={`input-field w-full ${
-                      validationErrors.userName ? "border-red-500" : ""
-                    }`}
+                    className={`input-field w-full ${validationErrors.userName ? "border-red-500" : ""}`}
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1 text-right">
                     {userInfo.name?.length || 0}/50文字
                   </p>
                   {validationErrors.userName && (
-                    <p className="text-xs text-red-600 mt-1">
-                      {validationErrors.userName}
-                    </p>
+                    <p className="text-xs text-red-600 mt-1">{validationErrors.userName}</p>
                   )}
                 </div>
-                
+
                 <div>
                   <label className="block text-sm text-text/70 mb-1">
                     メールアドレス<span className="text-red-500 ml-1">*</span>
@@ -842,58 +723,145 @@ const Settings: React.FC = () => {
                     maxLength={100}
                     onChange={(e) => {
                       setUserInfo({ ...userInfo, email: e.target.value });
-                      if (setupData) {
-                        setSetupData({ ...setupData, email: e.target.value });
-                      }
-                      if (validationErrors.email) {
-                        setValidationErrors({ ...validationErrors, email: undefined });
-                      }
+                      if (setupData) setSetupData({ ...setupData, email: e.target.value });
+                      if (validationErrors.email) setValidationErrors({ ...validationErrors, email: undefined });
                     }}
-                    className={`input-field w-full ${
-                      validationErrors.email ? "border-red-500" : ""
-                    }`}
+                    className={`input-field w-full ${validationErrors.email ? "border-red-500" : ""}`}
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1 text-right">
                     {userInfo.email?.length || 0}/100文字
                   </p>
                   {validationErrors.email && (
-                    <p className="text-xs text-red-600 mt-1">
-                      {validationErrors.email}
-                    </p>
+                    <p className="text-xs text-red-600 mt-1">{validationErrors.email}</p>
                   )}
                 </div>
               </div>
             </form>
           </div>
+{/* プランセクション */}
+{(user?.role === "0" || user?.role === "3" || user?.role === "4") && (
+          <div className="card">
+            <div className="flex items-center space-x-2 mb-4">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <circle cx="9" cy="9" r="9" fill="#F067A6" fillOpacity="0.15" />
+                <path d="M5 9l3 3 5-5" stroke="#F067A6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <h3 className="text-base sm:text-lg font-semibold text-text">プラン変更</h3>
+            </div>
+
+            <div
+              className="flex items-center justify-between p-4 rounded-xl mb-4"
+              style={{
+                background: user?.role === "4" ? "rgba(240,103,166,0.06)" : "#F9FAFB",
+                border: `1px solid ${user?.role === "4" ? "#F067A6" : "#E5E7EB"}`,
+              }}
+            >
+              <div>
+                <p className="text-sm font-semibold text-gray-900">
+                  {user?.role === "4" ? "有料プラン" : "無料プラン"}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {user?.role === "4" ? "¥2,480 / 月（税込）" : "無料でご利用中"}
+                </p>
+                {/* サブスクリプション詳細（有料会員のみ） */}
+                {user?.role === "4" && subscriptionInfo && (() => {
+                  const isCancelingOrCanceled =
+                    subscriptionInfo.cancelAtPeriodEnd ||
+                    subscriptionInfo.status === "canceled";
+                  const periodEndDate = subscriptionInfo.currentPeriodEnd
+                    ? new Date(subscriptionInfo.currentPeriodEnd)
+                    : null;
+                  const isBeforePeriodEnd = periodEndDate ? periodEndDate > new Date() : false;
+                  const formatDateJP = (d: Date) =>
+                    `${d.getFullYear()}年${String(d.getMonth() + 1).padStart(2, "0")}月${String(d.getDate()).padStart(2, "0")}日`;
+
+                  const statusLabel = (() => {
+                    if (subscriptionInfo.cancelAtPeriodEnd) return "解約申請済み";
+                    if (subscriptionInfo.status === "canceled") return "解約済み";
+                    if (subscriptionInfo.status === "active") return "有効";
+                    if (subscriptionInfo.status === "past_due") return "支払い遅延";
+                    if (subscriptionInfo.status === "incomplete") return "支払い未完了";
+                    if (subscriptionInfo.status === "incomplete_expired") return "支払い期限切れ";
+                    if (subscriptionInfo.status === "unpaid") return "未払い";
+                    if (subscriptionInfo.status === "paused") return "一時停止中";
+                    return subscriptionInfo.status ?? "";
+                  })();
+
+                  return (
+                    <div className="mt-2 space-y-0.5">
+                      {subscriptionInfo.createdAt && (
+                        <p className="text-xs text-gray-500">
+                          申込日：{formatDateJP(new Date(subscriptionInfo.createdAt))}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500">
+                        ステータス：{statusLabel}
+                      </p>
+                      {isCancelingOrCanceled && periodEndDate && isBeforePeriodEnd && (
+                        <p className="text-xs font-medium text-orange-600 mt-1">
+                          {formatDateJP(periodEndDate)}まで有効
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+              <span
+                className="text-xs font-bold px-3 py-1 rounded-full"
+                style={{
+                  background: user?.role === "4" ? "#F067A6" : "#E5E7EB",
+                  color: user?.role === "4" ? "#fff" : "#6B7280",
+                }}
+              >
+                {user?.role === "4" ? "PREMIUM" : "FREE"}
+              </span>
+            </div>
+
+            {(user?.role === "0" || user?.role === "3") && (
+              <button
+                onClick={() => setShowPlanModal(true)}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 text-sm px-5 py-2.5 rounded-full font-semibold text-white"
+                style={{ background: "linear-gradient(135deg, #F067A6, #d44f8e)" }}
+              >
+                有料プランにアップグレード
+              </button>
+            )}
+
+            {user?.role === "4" && (() => {
+              const isCancelingOrCanceled =
+                subscriptionInfo?.cancelAtPeriodEnd ||
+                subscriptionInfo?.status === "canceled";
+              return (
+                <button
+                  onClick={() => setShowCancelModal(true)}
+                  disabled={!!isCancelingOrCanceled}
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 text-sm px-4 py-2 border-2 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:border-gray-300 disabled:text-gray-400 border-red-500 text-red-600 hover:bg-red-50"
+                >
+                  解約する
+                </button>
+              );
+            })()}
+          </div>
+        )}
 
           {/* パスワード変更 */}
           <div className="card">
             <div className="flex items-center space-x-2 mb-4">
               <Lock className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-              <h3 className="text-base sm:text-lg font-semibold text-text">
-                パスワード変更
-              </h3>
+              <h3 className="text-base sm:text-lg font-semibold text-text">パスワード変更</h3>
             </div>
 
-            {/* ★★★ formタグで囲む（パスワード保存を有効化） ★★★ */}
             <form onSubmit={(e) => { e.preventDefault(); handleChangePassword(); }}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm text-text/70 mb-2">
-                    現在のパスワード
-                  </label>
+                  <label className="block text-sm text-text/70 mb-2">現在のパスワード</label>
                   <div className="relative">
                     <input
                       type={showCurrentPassword ? "text" : "password"}
                       name="current-password"
                       value={passwordData.currentPassword}
-                      onChange={(e) =>
-                        setPasswordData({
-                          ...passwordData,
-                          currentPassword: e.target.value,
-                        })
-                      }
+                      onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                       className="input-field w-full pr-10"
                       placeholder="現在のパスワードを入力"
                       autoComplete="current-password"
@@ -905,38 +873,13 @@ const Settings: React.FC = () => {
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                     >
                       {showCurrentPassword ? (
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                          />
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                          />
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
                       ) : (
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                          />
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                         </svg>
                       )}
                     </button>
@@ -947,20 +890,13 @@ const Settings: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm text-text/70 mb-2">
-                    新しいパスワード
-                  </label>
+                  <label className="block text-sm text-text/70 mb-2">新しいパスワード</label>
                   <div className="relative">
                     <input
                       type={showNewPassword ? "text" : "password"}
                       name="new-password"
                       value={passwordData.newPassword}
-                      onChange={(e) =>
-                        setPasswordData({
-                          ...passwordData,
-                          newPassword: e.target.value,
-                        })
-                      }
+                      onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                       className="input-field w-full pr-10"
                       placeholder="新しいパスワードを入力"
                       autoComplete="new-password"
@@ -972,38 +908,13 @@ const Settings: React.FC = () => {
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                     >
                       {showNewPassword ? (
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                          />
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                          />
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
                       ) : (
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                          />
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                         </svg>
                       )}
                     </button>
@@ -1011,26 +922,17 @@ const Settings: React.FC = () => {
                   <p className="text-xs text-gray-500 mt-1 text-right">
                     {passwordData.newPassword?.length || 0}/100文字
                   </p>
-                  <p className="text-xs text-text/50 mt-1">
-                    8文字以上、英字と数字を含めて設定してください
-                  </p>
+                  <p className="text-xs text-text/50 mt-1">8文字以上、英字と数字を含めて設定してください</p>
                 </div>
 
                 <div>
-                  <label className="block text-sm text-text/70 mb-2">
-                    新しいパスワード(確認用)
-                  </label>
+                  <label className="block text-sm text-text/70 mb-2">新しいパスワード(確認用)</label>
                   <div className="relative">
                     <input
                       type={showNewPasswordConfirm ? "text" : "password"}
                       name="new-password-confirm"
                       value={passwordData.newPasswordConfirm}
-                      onChange={(e) =>
-                        setPasswordData({
-                          ...passwordData,
-                          newPasswordConfirm: e.target.value,
-                        })
-                      }
+                      onChange={(e) => setPasswordData({ ...passwordData, newPasswordConfirm: e.target.value })}
                       className="input-field w-full pr-10"
                       placeholder="新しいパスワードを再入力"
                       autoComplete="new-password"
@@ -1038,44 +940,17 @@ const Settings: React.FC = () => {
                     />
                     <button
                       type="button"
-                      onClick={() =>
-                        setShowNewPasswordConfirm(!showNewPasswordConfirm)
-                      }
+                      onClick={() => setShowNewPasswordConfirm(!showNewPasswordConfirm)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                     >
                       {showNewPasswordConfirm ? (
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                          />
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                          />
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
                       ) : (
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                          />
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                         </svg>
                       )}
                     </button>
@@ -1084,9 +959,7 @@ const Settings: React.FC = () => {
                     {passwordData.newPasswordConfirm?.length || 0}/100文字
                   </p>
                   {passwordData.newPasswordConfirm && !checkPasswordMatch() && (
-                    <p className="text-xs text-red-600 mt-1">
-                      パスワードが一致しません
-                    </p>
+                    <p className="text-xs text-red-600 mt-1">パスワードが一致しません</p>
                   )}
                 </div>
 
@@ -1101,13 +974,12 @@ const Settings: React.FC = () => {
             </form>
           </div>
         </div>
-        {/* ★★★ 退会セクション ★★★ */}
+
+        {/* 退会セクション */}
         <div className="card border-2 border-red-100">
           <div className="flex items-center space-x-2 mb-4">
             <UserX className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />
-            <h3 className="text-base sm:text-lg font-semibold text-red-600">
-              アカウントの削除
-            </h3>
+            <h3 className="text-base sm:text-lg font-semibold text-red-600">アカウントの削除</h3>
           </div>
 
           <div className="space-y-4">
@@ -1132,6 +1004,150 @@ const Settings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* プラン選択モーダル */}
+      {showPlanModal && user && (
+        <PlanselectModal
+          isOpen={showPlanModal}
+          onClose={handlePlanModalClose}
+          onComplete={handlePlanComplete}
+          userId={user.id}
+          currentPlan="free"
+        />
+      )}
+
+      {/* 解約確認モーダル */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black opacity-50" onClick={() => setShowCancelModal(false)} />
+          <div className="relative bg-white rounded-3xl shadow-xl p-8 text-center" style={{ width: "100%", maxWidth: "400px" }}>
+            <div className="mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ background: "#FEF2F2" }}>
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                <path d="M16 10v8M16 21v1" stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">解約の確認</h3>
+            <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+              解約すると現在の契約期間終了後に<br />無料プランに移行します。<br />この操作は取り消せません。
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCancelModal(false)}
+                className="flex-1 py-3 rounded-full text-sm font-medium"
+                style={{ background: "#F3F4F6", color: "#6B7280" }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleCancelSubscription}
+                disabled={cancelLoading}
+                className="flex-1 py-3 rounded-full text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: "#EF4444" }}
+              >
+                {cancelLoading ? "処理中..." : "解約する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* アップグレード完了モーダル */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black opacity-50" onClick={() => setShowUpgradeModal(false)} />
+          <div className="relative bg-white rounded-3xl shadow-xl p-8 text-center" style={{ width: "100%", maxWidth: "400px" }}>
+            <div className="mx-auto w-20 h-20 rounded-full flex items-center justify-center mb-5" style={{ background: "rgba(240,103,166,0.1)" }}>
+              <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                <path d="M8 20l8 8 16-16" stroke="#F067A6" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">アップグレード完了！🎉</h3>
+            <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+              有料プランへの移行が完了しました。<br />メンターとの相談チャットや<br />アドバイス機能がご利用いただけます。
+            </p>
+            <button
+              onClick={() => {
+                setShowUpgradeModal(false);
+                window.location.reload();
+              }}
+              className="w-full py-3 rounded-full font-semibold text-sm text-white"
+              style={{ background: "linear-gradient(135deg, #F067A6, #d44f8e)" }}
+            >
+              さっそく使ってみる
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 退会確認モーダル */}
+      {showWithdrawalConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black opacity-50" onClick={() => setShowWithdrawalConfirmModal(false)} />
+          <div className="relative bg-white rounded-3xl shadow-xl p-8 text-center" style={{ width: "100%", maxWidth: "400px" }}>
+            <div className="mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ background: "#FEF2F2" }}>
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                <path d="M16 10v8M16 21v1" stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">退会の確認</h3>
+            <p className="text-sm text-gray-500 mb-2 leading-relaxed">
+              本当に退会しますか？<br />この操作は取り消すことができません。
+            </p>
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-6 text-left">
+              <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
+                <li>すべてのデータが削除されます</li>
+                <li>マンダラチャート、目標、実績データが失われます</li>
+                <li>再度利用する場合は、新規登録が必要です</li>
+              </ul>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowWithdrawalConfirmModal(false)}
+                className="flex-1 py-3 rounded-full text-sm font-medium"
+                style={{ background: "#F3F4F6", color: "#6B7280" }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleDeleteAccountConfirmed}
+                className="flex-1 py-3 rounded-full text-sm font-semibold text-white"
+                style={{ background: "#EF4444" }}
+              >
+                退会する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 退会完了モーダル */}
+      {showWithdrawalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black opacity-50" />
+          <div className="relative bg-white rounded-3xl shadow-xl p-8 text-center" style={{ width: "100%", maxWidth: "400px" }}>
+            <div className="mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ background: "#F3F4F6" }}>
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                <path d="M8 16l6 6 10-10" stroke="#6B7280" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">退会処理が完了しました</h3>
+            <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+              ご利用ありがとうございました。<br />またのご利用をお待ちしております。
+            </p>
+            <button
+              onClick={async () => {
+                setShowWithdrawalModal(false);
+                await logout();
+                window.location.href = "/login?reason=withdrawal";
+              }}
+              className="w-full py-3 rounded-full font-semibold text-sm text-white"
+              style={{ background: "#6B7280" }}
+            >
+              ログイン画面へ
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

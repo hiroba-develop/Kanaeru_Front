@@ -15,5 +15,6 @@ export type UserSchema = {
     businessStartHour?: number;
     businessEndHour?: number;
     webhookUrl?: string;
+    termsAgreedAt?: string;
 };
 

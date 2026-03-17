@@ -128,46 +128,81 @@ const YearlyBudgetActual: React.FC = () => {
   // グラフのY軸最大値を動的に計算（pendingEditsの値を考慮）
   const yAxisDomain = React.useMemo((): [number, number] => {
     if (targets.length === 0) {
-      return [0, 10000000]; // データがない場合は0〜1000万円
+      return [0, 10000000];
     }
-    
+
+    let minValue = 0;
     let maxValue = 0;
     chartData.forEach((t) => {
       if (chartType === "revenue") {
         maxValue = Math.max(maxValue, t.revenueTarget || 0, t.revenueActual || 0);
       } else if (chartType === "grossProfit") {
+        minValue = Math.min(minValue, t.grossProfitTarget || 0, t.grossProfitActual || 0);
         maxValue = Math.max(maxValue, t.grossProfitTarget || 0, t.grossProfitActual || 0);
       } else {
+        minValue = Math.min(minValue, t.operatingProfitTarget || 0, t.operatingProfitActual || 0);
         maxValue = Math.max(maxValue, t.operatingProfitTarget || 0, t.operatingProfitActual || 0);
       }
     });
-    
-    // データがすべて0の場合
-    if (maxValue === 0) {
-      return [0, 10000000]; // 0〜1000万円
+
+    if (maxValue === 0 && minValue === 0) {
+      return [0, 10000000];
     }
-    
-    // 最大値に50%の余裕を持たせる（マンダラ目標も表示できるように）
-    const paddedMax = maxValue * 1.5;
-    
-    // 適切な単位で切り上げ
-    let upperBound;
+
+    // 上限：50%の余裕を持たせて単位切り上げ
+    const paddedMax = maxValue > 0 ? maxValue * 1.5 : 1000000;
+    let upperBound: number;
     if (paddedMax < 1000000) {
-      // 100万円未満: 10万円単位で切り上げ
       upperBound = Math.ceil(paddedMax / 100000) * 100000;
     } else if (paddedMax < 10000000) {
-      // 1000万円未満: 100万円単位で切り上げ
       upperBound = Math.ceil(paddedMax / 1000000) * 1000000;
     } else if (paddedMax < 100000000) {
-      // 1億円未満: 1000万円単位で切り上げ
       upperBound = Math.ceil(paddedMax / 10000000) * 10000000;
     } else {
-      // 1億円以上: 1億円単位で切り上げ
       upperBound = Math.ceil(paddedMax / 100000000) * 100000000;
     }
-    
-    return [0, upperBound];
+
+    // 下限：マイナスがある場合は50%の余裕を持たせて単位切り捨て
+    let lowerBound = 0;
+    if (minValue < 0) {
+      const paddedMin = minValue * 1.5;
+      if (paddedMin > -1000000) {
+        lowerBound = Math.floor(paddedMin / 100000) * 100000;
+      } else if (paddedMin > -10000000) {
+        lowerBound = Math.floor(paddedMin / 1000000) * 1000000;
+      } else if (paddedMin > -100000000) {
+        lowerBound = Math.floor(paddedMin / 10000000) * 10000000;
+      } else {
+        lowerBound = Math.floor(paddedMin / 100000000) * 100000000;
+      }
+    }
+
+    return [lowerBound, upperBound];
   }, [chartData, chartType]);
+
+  // Y軸の目盛り（0を必ず含む）
+  const yAxisTicks = React.useMemo((): number[] => {
+    const [min, max] = yAxisDomain;
+    const range = max - min;
+    if (range === 0) return [0];
+
+    // 5〜7本程度になるステップ幅を算出
+    const roughStep = range / 6;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const step = Math.ceil(roughStep / magnitude) * magnitude;
+
+    const ticks: number[] = [];
+    const start = Math.ceil(min / step) * step;
+    for (let t = start; t <= max + step * 0.01; t += step) {
+      ticks.push(Math.round(t));
+    }
+    // 0 が含まれていなければ強制追加
+    if (min <= 0 && max >= 0 && !ticks.includes(0)) {
+      ticks.push(0);
+      ticks.sort((a, b) => a - b);
+    }
+    return ticks;
+  }, [yAxisDomain]);
 
   // データロード
   useEffect(() => {
@@ -1142,6 +1177,11 @@ const YearlyBudgetActual: React.FC = () => {
     );
   }
 
+  const negativeAllowedFields: EditableField[] = [
+    "grossProfitTarget", "grossProfitActual",
+    "operatingProfitTarget", "operatingProfitActual",
+  ];
+
   const renderDataCell = (
     data: YearlyData,
     field: keyof YearlyData,
@@ -1199,18 +1239,23 @@ const YearlyBudgetActual: React.FC = () => {
             type="number"
             defaultValue={displayValue}
             max={9999999999}
+            min={negativeAllowedFields.includes(field as EditableField) ? -9999999999 : 0}
             onInput={(e) => {
               const input = e.currentTarget;
-              const value = input.value;
-              if (value.length > 10) {
-                input.value = value.slice(0, 10);
+              const raw = input.value;
+              const digits = raw.startsWith("-") ? raw.length - 1 : raw.length;
+              if (digits > 10) {
+                input.value = raw.slice(0, raw.startsWith("-") ? 11 : 10);
               }
-              if (Number(input.value) < 0) {
+              if (!negativeAllowedFields.includes(field as EditableField) && Number(input.value) < 0) {
                 input.value = '0';
               }
             }}
             onBlur={(e) => {
-              const value = Math.min(Math.max(Number(e.target.value), 0), 9999999999);
+              const raw = Number(e.target.value);
+              const value = negativeAllowedFields.includes(field as EditableField)
+                ? Math.min(Math.max(raw, -9999999999), 9999999999)
+                : Math.min(Math.max(raw, 0), 9999999999);
               handleCellUpdate(
                 data.year,
                 field as EditableField,
@@ -1219,7 +1264,10 @@ const YearlyBudgetActual: React.FC = () => {
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                const value = Math.min(Math.max(Number(e.currentTarget.value), 0), 9999999999);
+                const raw = Number(e.currentTarget.value);
+                const value = negativeAllowedFields.includes(field as EditableField)
+                  ? Math.min(Math.max(raw, -9999999999), 9999999999)
+                  : Math.min(Math.max(raw, 0), 9999999999);
                 handleCellUpdate(
                   data.year,
                   field as EditableField,
@@ -1244,7 +1292,7 @@ const YearlyBudgetActual: React.FC = () => {
             autoFocus
             onFocus={(e) => e.target.select()}
           />
-        ) : displayValue > 0 ? (
+        ) : displayValue !== 0 ? (
           Number(displayValue).toLocaleString('ja-JP')
         ) : (
           "-"
@@ -1261,7 +1309,7 @@ const YearlyBudgetActual: React.FC = () => {
     const targetValue = data[targetField] as number;
     const actualValue = data[actualField] as number;
     
-    if (targetValue <= 0) {
+    if (targetValue === 0) {
       return (
         <td
           key={data.year}
@@ -1284,7 +1332,7 @@ const YearlyBudgetActual: React.FC = () => {
             : "text-error"
         }`}
       >
-        {actualValue > 0 ? `${rate.toFixed(1)}%` : "-"}
+        {actualValue !== 0 ? `${rate.toFixed(1)}%` : "-"}
       </td>
     );
   };
@@ -1410,28 +1458,27 @@ const YearlyBudgetActual: React.FC = () => {
                     fontFamily: "system-ui, -apple-system, sans-serif" 
                   }}
                   domain={yAxisDomain}
+                  ticks={yAxisTicks}
                   tickFormatter={(value) => {
+                    if (value === 0) return "0";
                     const manyen = value / 10000;
                     
                     if (isMobile) {
-                      if (manyen >= 10000) {
+                      if (Math.abs(manyen) >= 10000) {
                         const oku = manyen / 10000;
                         return `${oku.toFixed(1)}億`;
-                      } else if (manyen >= 1000) {
+                      } else if (Math.abs(manyen) >= 1000) {
                         const sen = manyen / 1000;
                         return `${sen.toFixed(0)}千万`;
                       }
                       return `${manyen.toFixed(0)}万`;
                     }
                     
-                    if (manyen >= 10000) {
-                      const oku = Math.floor(manyen / 10000);
-                      const man = manyen % 10000;
-                      if (man === 0) {
-                        return `${oku}億`;
-                      } else {
-                        return `${oku}億${man.toLocaleString()}万`;
-                      }
+                    if (Math.abs(manyen) >= 10000) {
+                      const oku = Math.floor(Math.abs(manyen) / 10000);
+                      const man = Math.abs(manyen) % 10000;
+                      const sign = manyen < 0 ? "-" : "";
+                      return man === 0 ? `${sign}${oku}億` : `${sign}${oku}億${man.toLocaleString()}万`;
                     }
                     return `${manyen.toLocaleString()}万`;
                   }}
@@ -1525,6 +1572,8 @@ const YearlyBudgetActual: React.FC = () => {
                   name="営業利益実績"
                   hide={chartType !== "operatingProfit"}
                 />
+
+              <ReferenceLine y={0} stroke="#6B7280" strokeWidth={0.5} />
 
               {mandalaGoals
               .filter(goal => goal.metric === chartType)
