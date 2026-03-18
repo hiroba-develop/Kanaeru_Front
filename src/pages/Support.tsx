@@ -548,42 +548,36 @@ const Support: React.FC = () => {
         <div className={`mb-4 flex-shrink-0 rounded-xl p-3 sm:p-4 border border-green-200 bg-gradient-to-br from-green-50 to-emerald-50 overflow-y-auto ${
           editingAdviceId === latestAdvice.adviceId ? "" : "max-h-48"
         }`}>
-          <div className="flex items-start justify-between mb-2 gap-2">
-            <div className="flex items-center space-x-2 min-w-0">
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                <User className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-white" />
-              </div>
-              <span className="text-xs sm:text-sm font-medium text-text truncate">
-                {latestAdvice.adminName}
-              </span>
-              <span className="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-full flex-shrink-0">
-                New
-              </span>
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <div className="flex flex-col items-end gap-0.5">
-                <span className="text-xs text-text/50">登録: {formatDateTime(latestAdvice.createdAt)}</span>
-                {latestAdvice.updatedAt && !isSameDateTime(latestAdvice.createdAt, latestAdvice.updatedAt) && (
-                  <span className="text-xs text-text/40">更新: {formatDateTime(latestAdvice.updatedAt)}</span>
-                )}
+          <div className="mb-2">
+            {/* 1行目：アイコン + 名前 + Newバッジ + 編集・削除ボタン */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-2 min-w-0">
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                  <User className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-white" />
+                </div>
+                <span className="text-xs sm:text-sm font-medium text-text">
+                  {latestAdvice.adminName}
+                </span>
+                <span className="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-full flex-shrink-0">
+                  New
+                </span>
               </div>
               {isAdmin && (
-                <>
-                  <button
-                    onClick={() => handleEditAdvice(latestAdvice)}
-                    className="p-1 rounded-md hover:bg-green-100 transition-colors"
-                    title="編集"
-                  >
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button onClick={() => handleEditAdvice(latestAdvice)} className="p-1 rounded-md hover:bg-green-100 transition-colors" title="編集">
                     <Pencil className="h-3 w-3 text-text/40 hover:text-text/70" />
                   </button>
-                  <button
-                    onClick={() => handleDeleteAdvice(latestAdvice.adviceId)}
-                    className="p-1 rounded-md hover:bg-red-100 transition-colors"
-                    title="削除"
-                  >
+                  <button onClick={() => handleDeleteAdvice(latestAdvice.adviceId)} className="p-1 rounded-md hover:bg-red-100 transition-colors" title="削除">
                     <Trash2 className="h-3 w-3 text-text/40 hover:text-red-500" />
                   </button>
-                </>
+                </div>
+              )}
+            </div>
+            {/* 2行目：登録・更新日時 */}
+            <div className="flex flex-col gap-0.5 mt-1 items-end">
+              <span className="text-xs text-text/50">登録: {formatDateTime(latestAdvice.createdAt)}</span>
+              {latestAdvice.updatedAt && !isSameDateTime(latestAdvice.createdAt, latestAdvice.updatedAt) && (
+                <span className="text-xs text-text/40">更新: {formatDateTime(latestAdvice.updatedAt)}</span>
               )}
             </div>
           </div>
@@ -674,40 +668,33 @@ const Support: React.FC = () => {
               key={advice.adviceId ?? advice.createdAt}
               className="rounded-xl p-3 sm:p-4 border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors"
             >
-              <div className="flex items-start justify-between mb-2 gap-2">
-                <div className="flex items-center space-x-2 min-w-0">
-                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-primary/80 flex items-center justify-center flex-shrink-0">
-                    <User className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-white" />
+              <div className="mb-2">
+                {/* 1行目：アイコン + 名前 + 編集・削除ボタン */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-primary/80 flex items-center justify-center flex-shrink-0">
+                      <User className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-white" />
+                    </div>
+                    <span className="text-xs sm:text-sm font-medium text-text">
+                      {advice.adminName}
+                    </span>
                   </div>
-                  <span className="text-xs sm:text-sm font-medium text-text truncate">
-                    {advice.adminName}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <div className="flex flex-col items-end gap-0.5">
-                    <span className="text-xs text-text/50">登録: {formatDateTime(advice.createdAt)}</span>
-                    {advice.updatedAt && !isSameDateTime(advice.createdAt, advice.updatedAt) && (
-                      <span className="text-xs text-text/40">更新: {formatDateTime(advice.updatedAt)}</span>
-                    )}
-                  </div>
-                  {(() => { console.log('editingAdviceId:', editingAdviceId, 'advice.adviceId:', advice.adviceId); return null; })()}
                   {isAdmin && editingAdviceId !== advice.adviceId && (
-                    <>
-                      <button
-                        onClick={() => handleEditAdvice(advice)}
-                        className="p-1 rounded-md hover:bg-gray-200 transition-colors"
-                        title="編集"
-                      >
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => handleEditAdvice(advice)} className="p-1 rounded-md hover:bg-gray-200 transition-colors" title="編集">
                         <Pencil className="h-3 w-3 text-text/40 hover:text-text/70" />
                       </button>
-                      <button
-                        onClick={() => handleDeleteAdvice(advice.adviceId)}
-                        className="p-1 rounded-md hover:bg-red-100 transition-colors"
-                        title="削除"
-                      >
+                      <button onClick={() => handleDeleteAdvice(advice.adviceId)} className="p-1 rounded-md hover:bg-red-100 transition-colors" title="削除">
                         <Trash2 className="h-3 w-3 text-text/40 hover:text-red-500" />
                       </button>
-                    </>
+                    </div>
+                  )}
+                </div>
+                {/* 2行目：登録・更新日時 */}
+                <div className="flex flex-col gap-0.5 mt-1 items-end">
+                  <span className="text-xs text-text/50">登録: {formatDateTime(advice.createdAt)}</span>
+                  {advice.updatedAt && !isSameDateTime(advice.createdAt, advice.updatedAt) && (
+                    <span className="text-xs text-text/40">更新: {formatDateTime(advice.updatedAt)}</span>
                   )}
                 </div>
               </div>

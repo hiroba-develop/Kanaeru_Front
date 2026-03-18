@@ -126,9 +126,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const userRole = user?.role ?? null;
   
 
-  const MandalaIcon: React.FC<{ className?: string }> = ({
-    className = "",
-  }) => (
+  const MandalaIcon: React.FC<{ className?: string }> = ({ className = "" }) => (
     <img
       src={mandalaIcon}
       alt="Mandala"
@@ -141,9 +139,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       }}
     />
   );
-  const PLIcon: React.FC<{ className?: string }> = ({
-    className = "",
-  }) => (
+  const PLIcon: React.FC<{ className?: string }> = ({ className = "" }) => (
     <img
       src={plIcon}
       alt="PL"
@@ -419,13 +415,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       >
         {item.name === "アドバイス・相談" ? (
           <div
-            className={`${isMobile ? "h-5 w-5 sm:h-6 sm:w-6" : "h-5 w-5 xl:h-6 xl:w-6"} mr-4 flex-shrink-0 rounded-full flex items-center justify-center`}
+            className="h-6 w-6 mr-4 flex-shrink-0 rounded-full flex items-center justify-center"
             style={{ background: "#13AE67" }}
           >
-            <item.icon className={`h-3 w-3 ${isMobile ? "sm:h-3.5 sm:w-3.5" : "xl:h-3.5 xl:w-3.5"} text-white`} />
+            <item.icon className="h-3.5 w-3.5 text-white" />
           </div>
         ) : (
-          <item.icon className={`h-4 w-4 ${isMobile ? "sm:h-5 sm:w-5" : "xl:h-5 xl:w-5"} mr-4 flex-shrink-0`} />
+          <item.icon className={`h-6 w-6 mr-4 flex-shrink-0`} />
         )}
         <span className={`flex items-center text-xs ${isMobile ? "sm:text-sm" : "xl:text-sm"}`}>
           {item.name}

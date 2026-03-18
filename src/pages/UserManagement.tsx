@@ -252,7 +252,7 @@ const UserManagement: React.FC = () => {
         </div>
 
         <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-8 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
             <div className="flex items-center gap-4">
               <div className="rounded-full bg-[#13AE67]/10 flex items-center justify-center overflow-hidden" style={{ width: '64px', height: '64px', minWidth: '64px', minHeight: '64px' }}>
                 {selectedUser.avatar ? (
@@ -286,7 +286,7 @@ const UserManagement: React.FC = () => {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 self-start sm:self-auto">
               {/* マンダラチャートへのリンク */}
               <button
                 onClick={() => {
