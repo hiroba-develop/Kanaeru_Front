@@ -858,10 +858,10 @@ const Support: React.FC = () => {
             ) : (
               <div className="space-y-1 sm:space-y-2">
                 <div className="flex space-x-2 items-end">
-                  <textarea
+                <textarea
                     value={chatMessage}
                     onChange={(e) => setChatMessage(e.target.value)}
-                    className="input-field flex-1 text-sm rounded-2xl resize-none"
+                    className="input-field flex-1 text-sm rounded-2xl resize-none overflow-y-auto"
                     placeholder="メッセージを入力..."
                     disabled={isSending}
                     maxLength={1000}
@@ -873,6 +873,8 @@ const Support: React.FC = () => {
                       lineHeight: "1.5",
                       paddingTop: "8px",
                       paddingBottom: "8px",
+                      paddingRight: "12px", // ← スクロールバー分の余白を追加
+                      boxSizing: "border-box",
                     }}
                     onInput={(e) => {
                       // ★ 内容に応じて高さを自動調整
@@ -881,7 +883,11 @@ const Support: React.FC = () => {
                       el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
                     }}
                     onKeyDown={(e) => {
-                      // ★ Shift+Enter で改行、Enter のみで送信
+                      // スマホ（タッチデバイス）では Enter キー送信を無効化
+                      const isTouchDevice = navigator.maxTouchPoints > 0;
+                      if (isTouchDevice) return;
+                      
+                      // PC：Shift+Enter で改行、Enter のみで送信
                       if (e.key === "Enter" && !e.shiftKey && !isSending) {
                         e.preventDefault();
                         handleSendMessage();
@@ -901,9 +907,14 @@ const Support: React.FC = () => {
                     )}
                   </button>
                 </div>
-                {chatMessage.trim() && (
-                  <div className="text-xs text-text/70 px-1">{chatMessage.length}/1000文字</div>
-                )}
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-xs text-text/40 hidden sm:block">
+                    Enter で送信　Shift+Enter で改行
+                  </span>
+                  {chatMessage.trim() && (
+                    <span className="text-xs text-text/70">{chatMessage.length}/1000文字</span>
+                  )}
+                </div>
               </div>
             )}
           </div>

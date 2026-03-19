@@ -149,4 +149,27 @@
   .checkbox-heart-checked {
     @apply text-achieved;
   }
+  /* textarea専用 */
+  textarea.input-field,
+  textarea.rounded-lg {
+    @apply overflow-y-auto;
+    scrollbar-width: thin;
+    scrollbar-color: #9CA3AF transparent;
+  }
+
+  textarea.input-field::-webkit-scrollbar,
+  textarea.rounded-lg::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  textarea.input-field::-webkit-scrollbar-track,
+  textarea.rounded-lg::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  textarea.input-field::-webkit-scrollbar-thumb,
+  textarea.rounded-lg::-webkit-scrollbar-thumb {
+    background-color: #9CA3AF;
+    border-radius: 9999px;
+  }
 }

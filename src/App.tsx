@@ -20,7 +20,7 @@ import Contact from "./pages/Contact";
 import Terms from "./pages/Terms";
 import PlanselectModal, { type PlanId } from "./components/PlanselectModal";
 // import Ranking from "./pages/Ranking";
-import ClientManagement from "./pages/ClientManagement";
+//import ClientManagement from "./pages/ClientManagement";
 import AdminUserManagement from "./pages/AdminUserManagement";
 import UserManagement from "./pages/UserManagement";
 import MandalaChart from "./pages/MandalaChart";
@@ -327,16 +327,6 @@ const AppContent: React.FC = () => {
             <ProtectedRoute>
               <Layout>
                 <AdminUserManagement />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/clientManagement"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <ClientManagement />
               </Layout>
             </ProtectedRoute>
           }
