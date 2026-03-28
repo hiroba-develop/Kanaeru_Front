@@ -654,14 +654,32 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <div className="p-4 xl:p-6 flex flex-col gap-2">
                 {isUpgradableRole && <UpgradeButton size="xl" onClick={() => setShowPlanModal(true)} />}
                 <Link
-                  to="/contact"
+                to="/contact"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full text-xs xl:text-sm font-medium bg-primary text-white border border-primary transition-colors hover:bg-primary/90 px-3 py-1.5 xl:px-4 xl:py-2 rounded-full block text-center"
+              >
+                お問い合わせ
+              </Link>
+              <div className="flex flex-col items-center gap-1 pt-1">
+                <Link
+                  to="/terms"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full text-xs xl:text-sm font-medium bg-primary text-white border border-primary transition-colors hover:bg-primary/90 px-3 py-1.5 xl:px-4 xl:py-2 rounded-full block text-center"
+                  className="text-[10px] xl:text-xs text-gray-400 hover:text-gray-600 underline"
                 >
-                  お問い合わせ
+                  利用規約
                 </Link>
+                <a
+                  href="https://etomoji.co.jp/privacy-policy/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] xl:text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  プライバシーポリシー
+                </a>
               </div>
+            </div>
             )}
           </div>
         </aside>
@@ -880,6 +898,25 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   >
                     お問い合わせ
                   </Link>
+                  <div className="flex justify-center gap-3 pt-1">
+                    <Link
+                      to="/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] sm:text-xs text-gray-400 hover:text-gray-600 underline"
+                    >
+                      利用規約
+                    </Link>
+                    <span className="text-[10px] sm:text-xs text-gray-300">|</span>
+                    <a
+                      href="https://etomoji.co.jp/privacy-policy/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] sm:text-xs text-gray-400 hover:text-gray-600 underline"
+                    >
+                      プライバシーポリシー
+                    </a>
+                  </div>
                 </div>
               )}
             </div>
