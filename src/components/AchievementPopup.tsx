@@ -120,7 +120,6 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
                 <p 
                   className="text-[#1e1f1f] leading-none"
                   style={{
-                    fontFamily: 'Inter',
                     fontWeight: 700,
                     fontSize: 'clamp(32px, 8vw, 64px)'
                   }}
@@ -130,7 +129,6 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
                 <p 
                   className="text-[#1e1f1f]"
                   style={{
-                    fontFamily: 'Inter',
                     fontWeight: 700,
                     fontSize: 'clamp(14px, 3vw, 24px)',
                     marginTop: 'clamp(4px, 1vw, 8px)'

@@ -2126,7 +2126,6 @@ const MonthlyBudgetActual: React.FC = () => {
           >
             <h3
               style={{
-                fontFamily: 'Inter',
                 fontWeight: 600,
                 fontSize: 'clamp(16px, 4vw, 20px)',
                 color: '#F59E0B',
@@ -2138,7 +2137,6 @@ const MonthlyBudgetActual: React.FC = () => {
             
             <p
               style={{
-                fontFamily: 'Inter',
                 fontWeight: 400,
                 fontSize: 'clamp(13px, 3vw, 15px)',
                 color: '#1E1F1F',
@@ -2156,7 +2154,6 @@ const MonthlyBudgetActual: React.FC = () => {
                 onClick={() => setMandalaUpdateDialog(prev => ({ ...prev, isOpen: false }))}
                 className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md"
                 style={{
-                  fontFamily: 'Inter',
                   fontSize: 'clamp(14px, 3.5vw, 16px)',
                   color: '#9CA3AF',
                   background: '#F9FAFB',
@@ -2171,7 +2168,6 @@ const MonthlyBudgetActual: React.FC = () => {
                 onClick={mandalaUpdateDialog.onCancel}
                 className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md"
                 style={{
-                  fontFamily: 'Inter',
                   fontSize: 'clamp(14px, 3.5vw, 16px)',
                   color: '#6B7280',
                   background: '#F3F4F6',
@@ -2185,7 +2181,6 @@ const MonthlyBudgetActual: React.FC = () => {
                 onClick={mandalaUpdateDialog.onConfirm}
                 className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg"
                 style={{
-                  fontFamily: 'Inter',
                   fontSize: 'clamp(14px, 3.5vw, 16px)',
                   color: '#FFFFFF',
                   background: '#13AE67',

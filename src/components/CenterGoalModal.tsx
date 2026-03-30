@@ -106,7 +106,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
         <div className="flex items-center justify-between p-4 sm:p-6" style={{ boxShadow: '0 1px 0 0 rgba(229, 231, 235, 0.5)' }}>
           <h2
             style={{
-              fontFamily: 'Inter',
               fontWeight: 600,
               fontSize: 'clamp(16px, 4vw, 20px)',
               color: '#13AE67'
@@ -126,7 +125,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
         <div className="p-4 sm:p-6 space-y-4">
           <p
             style={{
-              fontFamily: 'Inter',
               fontWeight: 400,
               fontSize: 'clamp(12px, 3vw, 14px)',
               color: '#6B7280',
@@ -141,7 +139,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
           <div>
             <label
               style={{
-                fontFamily: 'Inter',
                 fontWeight: 500,
                 fontSize: 'clamp(12px, 3vw, 14px)',
                 color: '#1E1F1F',
@@ -157,7 +154,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
                 onChange={(e) => setStartYear(e.target.value)}
                 className="flex-1 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
                 style={{
-                  fontFamily: 'Inter',
                   fontSize: 'clamp(12px, 3vw, 14px)',
                   border: 'none',
                   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
@@ -175,7 +171,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
                 onChange={(e) => setStartMonth(e.target.value)}
                 className="flex-1 p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
                 style={{
-                  fontFamily: 'Inter',
                   fontSize: 'clamp(12px, 3vw, 14px)',
                   border: 'none',
                   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)'
@@ -195,7 +190,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
           <div>
             <label
               style={{
-                fontFamily: 'Inter',
                 fontWeight: 500,
                 fontSize: 'clamp(12px, 3vw, 14px)',
                 color: '#1E1F1F',
@@ -211,7 +205,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
               placeholder="例: 新しいパソコンを買えるようになっている"
               className="w-full p-2 sm:p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary placeholder-gray-300"
               style={{
-                fontFamily: 'Inter',
                 fontSize: 'clamp(12px, 3vw, 14px)',
                 minHeight: 'clamp(100px, 20vw, 120px)',
                 border: 'none',
@@ -221,7 +214,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
             />
             <p
               style={{
-                fontFamily: 'Inter',
                 fontWeight: 400,
                 fontSize: 'clamp(10px, 2.5vw, 12px)',
                 color: '#9CA3AF',
@@ -240,7 +232,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
             onClick={onClose}
             className="flex-1 py-2 sm:py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md hover:-translate-y-0.5 hover:bg-gray-50"
             style={{
-              fontFamily: 'Inter',
               fontSize: 'clamp(12px, 3vw, 14px)',
               color: '#6B7280',
               boxShadow: '0 0 0 2px #E5E7EB'
@@ -255,7 +246,6 @@ const CenterGoalModal: React.FC<CenterGoalModalProps> = ({
               !isSubmitDisabled && 'hover:scale-105 hover:shadow-lg hover:-translate-y-0.5'
             }`}
             style={{
-              fontFamily: 'Inter',
               fontSize: 'clamp(14px, 3.5vw, 16px)',
               background: isSubmitDisabled ? '#E5E7EB' : '#13AE67',
               color: isSubmitDisabled ? '#9CA3AF' : '#FFFFFF',

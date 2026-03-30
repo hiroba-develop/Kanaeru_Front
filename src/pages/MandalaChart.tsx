@@ -282,6 +282,7 @@ const MandalaChart: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false); // アニメーション用
   const dragIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const touchCurrentIndexRef = useRef<number | null>(null);
 
   const [savedSmallCharts, setSavedSmallCharts] = useState<{[key: string]: MandalaSubChart}>({});
 
@@ -2496,6 +2497,41 @@ const MandalaChart: React.FC = () => {
     dragIndexRef.current = null;
     setDragOverIndex(null);
   };
+  const handleTouchStart = (e: React.TouchEvent, index: number) => {
+    if (!canEdit) return;
+    dragIndexRef.current = index;
+  };
+  
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!canEdit || dragIndexRef.current === null) return;
+    e.preventDefault();
+  
+    const touch = e.touches[0];
+    const element = document.elementFromPoint(touch.clientX, touch.clientY);
+    const row = element?.closest('[data-drag-index]');
+  
+    if (row) {
+      const idx = Number(row.getAttribute('data-drag-index'));
+      if (!isNaN(idx) && idx !== dragIndexRef.current) {
+        setDragOverIndex(idx);
+        touchCurrentIndexRef.current = idx;
+      }
+    }
+  };
+  
+  const handleTouchEnd = async (e: React.TouchEvent) => {
+    if (!canEdit) return;
+    const toIndex = touchCurrentIndexRef.current;
+  
+    touchCurrentIndexRef.current = null;
+  
+    if (toIndex !== null && toIndex !== dragIndexRef.current) {
+      await handleSmallGoalDrop(toIndex);
+    } else {
+      dragIndexRef.current = null;
+      setDragOverIndex(null);
+    }
+  };
 
   const updateMiddleAchievement = (
     middleCellId: string,
@@ -2716,7 +2752,6 @@ const MandalaChart: React.FC = () => {
                           top: '50%',
                           left: '50%',
                           transform: 'translate(-50%, -50%)',
-                          fontFamily: 'Inter',
                           fontWeight: 400,
                           fontSize: 'clamp(8px, 1.6vw, 14px)',
                           color: 'rgba(19, 174, 103, 0.5)',
@@ -2739,7 +2774,6 @@ const MandalaChart: React.FC = () => {
                         transform: window.innerWidth < 768 
                           ? 'translate(-50%, 0%)' 
                           : 'translate(-50%, clamp(-60px, -8vw, -90px))',
-                        fontFamily: 'Inter',
                         fontWeight: 400,
                         fontStyle: 'normal',
                         fontSize: window.innerWidth < 768 ? '7px' : 'clamp(8px, 1.6vw, 12px)',
@@ -2763,7 +2797,6 @@ const MandalaChart: React.FC = () => {
                         left: '50%',
                         transform: 'translate(-50%, -50%)',
                         marginTop: window.innerWidth < 768 ? '8px' : '0px',
-                        fontFamily: 'Inter',
                         fontWeight: 700,
                         fontStyle: 'normal',
                         fontSize: window.innerWidth < 768 ? '9px' : 'clamp(11px, 2.6vw, 18px)',
@@ -2842,7 +2875,6 @@ const MandalaChart: React.FC = () => {
                                   top: '50%',
                                   left: '50%',
                                   transform: 'translate(-50%, -50%)',
-                                  fontFamily: 'Inter',
                                   fontWeight: 400,
                                   fontSize: 'clamp(7px, 1.4vw, 14px)',
                                   color: hasMainGoal ? 'rgba(19, 174, 103, 0.5)' : 'rgba(156, 163, 175, 0.5)', // ★ 修正
@@ -2887,8 +2919,7 @@ const MandalaChart: React.FC = () => {
                             position: 'absolute',
                             width: window.innerWidth < 768 ? '55%' : 'min(120px, 75%)',
                             height: 'auto',
-                            maxHeight: window.innerWidth < 768 ? '45%' : '60%',
-                            fontFamily: 'Inter',
+                            maxHeight: window.innerWidth < 768 ? '45%' : '60%',                            
                             fontStyle: 'normal',
                             fontWeight: 600,
                             fontSize: window.innerWidth < 768 ? '7px' : 'clamp(9px, 1.8vw, 14px)',
@@ -3004,7 +3035,6 @@ const MandalaChart: React.FC = () => {
                         transform: window.innerWidth < 768 
                           ? 'translate(-50%, 0%)' 
                           : 'translate(-50%, clamp(-60px, -8vw, -90px))',
-                        fontFamily: 'Inter',
                         fontWeight: 400,
                         fontStyle: 'normal',
                         fontSize: window.innerWidth < 768 ? '7px' : 'clamp(8px, 1.6vw, 12px)',
@@ -3028,7 +3058,6 @@ const MandalaChart: React.FC = () => {
                         left: '50%',
                         transform: 'translate(-50%, -50%)',
                         marginTop: window.innerWidth < 768 ? '8px' : '0px',
-                        fontFamily: 'Inter',
                         fontWeight: 700,
                         fontStyle: 'normal',
                         fontSize: window.innerWidth < 768 ? '9px' : 'clamp(11px, 2.6vw, 18px)',
@@ -3099,7 +3128,6 @@ const MandalaChart: React.FC = () => {
                               top: '50%',
                               left: '50%',
                               transform: 'translate(-50%, -50%)',
-                              fontFamily: 'Inter',
                               fontWeight: 400,
                               fontSize: 'clamp(12px, 2.5vw, 14px)',
                               color: 'rgba(19, 174, 103, 0.5)',
@@ -3146,7 +3174,6 @@ const MandalaChart: React.FC = () => {
                             width: window.innerWidth < 768 ? '55%' : 'min(120px, 75%)',
                             height: 'auto',
                             maxHeight: window.innerWidth < 768 ? '45%' : '60%',
-                            fontFamily: 'Inter',
                             fontWeight: 600,
                             fontSize: window.innerWidth < 768 ? '7px' : 'clamp(9px, 1.8vw, 14px)',
                             lineHeight: window.innerWidth < 768 ? '10px' : 'clamp(13px, 2.6vw, 20px)',
@@ -3215,7 +3242,6 @@ const MandalaChart: React.FC = () => {
           >
             <p 
               style={{
-                fontFamily: 'Inter',
                 fontWeight: 400,
                 fontSize: 'clamp(10px, 2vw, 12px)',
                 lineHeight: '100%',
@@ -3300,7 +3326,6 @@ const MandalaChart: React.FC = () => {
               >
                 <p
                   style={{
-                    fontFamily: 'Inter',
                     fontWeight: 700,
                     fontSize: 'clamp(14px, 3vw, 20px)',
                     lineHeight: 'clamp(22px, 4vw, 32px)',
@@ -3327,6 +3352,7 @@ const MandalaChart: React.FC = () => {
                 return (
                   <div
                     key={cell.id}
+                    data-drag-index={index}
                     draggable={canEdit}
                     className={`flex items-center transition-all duration-500 relative group ${
                       isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-8'
@@ -3356,6 +3382,9 @@ const MandalaChart: React.FC = () => {
                     onDragOver={(e) => handleSmallGoalDragOver(e, index)}
                     onDrop={() => handleSmallGoalDrop(index)}
                     onDragEnd={handleSmallGoalDragEnd}
+                    onTouchStart={(e) => handleTouchStart(e, index)}  // ← 追加
+                    onTouchMove={(e) => handleTouchMove(e)}            // ← 追加
+                    onTouchEnd={(e) => handleTouchEnd(e)}              // ← 追加
                   >
                     {isCellHovered && !cell.title && canEdit && (  // ★ canEdit条件を追加
                       <div
@@ -3363,7 +3392,6 @@ const MandalaChart: React.FC = () => {
                         style={{
                           left: '50%',
                           transform: 'translateX(-50%)',
-                          fontFamily: 'Inter',
                           fontWeight: 400,
                           fontSize: 'clamp(10px, 2vw, 14px)',
                           color: 'rgba(19, 174, 103, 0.5)',
@@ -3462,7 +3490,6 @@ const MandalaChart: React.FC = () => {
                         placeholder=""
                         className="w-full bg-transparent font-medium"
                         style={{
-                          fontFamily: 'Inter',
                           fontWeight: 700,
                           fontSize: 'clamp(12px, 2.5vw, 16px)',
                           lineHeight: 'clamp(20px, 4vw, 32px)',
@@ -3485,7 +3512,6 @@ const MandalaChart: React.FC = () => {
                           position: 'absolute',
                           right: '0',
                           bottom: '0x',
-                          fontFamily: 'Inter',
                           fontWeight: 400,
                           fontSize: 'clamp(9px, 1.8vw, 11px)',
                           color: '#9CA3AF',
@@ -3503,7 +3529,6 @@ const MandalaChart: React.FC = () => {
                         }}
                         className="flex-shrink-0 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:-translate-y-0.5"
                         style={{
-                          fontFamily: 'Inter',
                           fontWeight: 600,
                           fontSize: 'clamp(10px, 2vw, 12px)',
                           color: '#FFFFFF',
@@ -3544,7 +3569,6 @@ const MandalaChart: React.FC = () => {
           >
             <p 
               style={{
-                fontFamily: 'Inter',
                 fontWeight: 400,
                 fontSize: 'clamp(10px, 2vw, 12px)',
                 lineHeight: '100%',
@@ -3610,7 +3634,6 @@ const MandalaChart: React.FC = () => {
           >
             <h3
               style={{
-                fontFamily: 'Inter',
                 fontWeight: 600,
                 fontSize: 'clamp(16px, 4vw, 20px)',
                 color: '#F59E0B',
@@ -3622,7 +3645,6 @@ const MandalaChart: React.FC = () => {
             
             <p
               style={{
-                fontFamily: 'Inter',
                 fontWeight: 400,
                 fontSize: 'clamp(13px, 3vw, 15px)',
                 color: '#1E1F1F',
@@ -3644,7 +3666,6 @@ const MandalaChart: React.FC = () => {
                 }}
                 className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md"
                 style={{
-                  fontFamily: 'Inter',
                   fontSize: 'clamp(14px, 3.5vw, 16px)',
                   color: '#9CA3AF',
                   background: '#F9FAFB',
@@ -3658,7 +3679,6 @@ const MandalaChart: React.FC = () => {
                 onClick={plConflictDialog.onCancel}
                 className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-md"
                 style={{
-                  fontFamily: 'Inter',
                   fontSize: 'clamp(14px, 3.5vw, 16px)',
                   color: '#6B7280',
                   background: '#F3F4F6',
@@ -3671,7 +3691,6 @@ const MandalaChart: React.FC = () => {
                 onClick={plConflictDialog.onConfirm}
                 className="flex-1 py-3 rounded-full font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg"
                 style={{
-                  fontFamily: 'Inter',
                   fontSize: 'clamp(14px, 3.5vw, 16px)',
                   color: '#FFFFFF',
                   background: '#13AE67',
