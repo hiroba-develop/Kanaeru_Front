@@ -2505,6 +2505,8 @@ const MandalaChart: React.FC = () => {
   
   // iOS Safari では React の onTouchMove が passive 登録されるため e.preventDefault() が無効になる。
   // リストコンテナに直接 { passive: false } でリスナーを登録することでスクロールを抑制する。
+  // viewLevel が "small" に切り替わった後に div がマウントされるため、
+  // viewLevel を依存配列に含めて確実にリスナーを登録する。
   useEffect(() => {
     const el = smallGoalListRef.current;
     if (!el) return;
@@ -2528,7 +2530,7 @@ const MandalaChart: React.FC = () => {
 
     el.addEventListener('touchmove', onTouchMove, { passive: false });
     return () => el.removeEventListener('touchmove', onTouchMove);
-  }, [canEdit]);
+  }, [canEdit, viewLevel]);
   
   const handleTouchEnd = async (_e: React.TouchEvent) => {
     if (!canEdit) return;
