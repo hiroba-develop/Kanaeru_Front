@@ -283,6 +283,7 @@ const MandalaChart: React.FC = () => {
   const dragIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const touchCurrentIndexRef = useRef<number | null>(null);
+  const smallGoalListRef = useRef<HTMLDivElement>(null);
 
   const [savedSmallCharts, setSavedSmallCharts] = useState<{[key: string]: MandalaSubChart}>({});
 
@@ -2497,29 +2498,39 @@ const MandalaChart: React.FC = () => {
     dragIndexRef.current = null;
     setDragOverIndex(null);
   };
-  const handleTouchStart = (e: React.TouchEvent, index: number) => {
+  const handleTouchStart = (_e: React.TouchEvent, index: number) => {
     if (!canEdit) return;
     dragIndexRef.current = index;
   };
   
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!canEdit || dragIndexRef.current === null) return;
-    e.preventDefault();
-  
-    const touch = e.touches[0];
-    const element = document.elementFromPoint(touch.clientX, touch.clientY);
-    const row = element?.closest('[data-drag-index]');
-  
-    if (row) {
-      const idx = Number(row.getAttribute('data-drag-index'));
-      if (!isNaN(idx) && idx !== dragIndexRef.current) {
-        setDragOverIndex(idx);
-        touchCurrentIndexRef.current = idx;
+  // iOS Safari では React の onTouchMove が passive 登録されるため e.preventDefault() が無効になる。
+  // リストコンテナに直接 { passive: false } でリスナーを登録することでスクロールを抑制する。
+  useEffect(() => {
+    const el = smallGoalListRef.current;
+    if (!el) return;
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!canEdit || dragIndexRef.current === null) return;
+      e.preventDefault();
+
+      const touch = e.touches[0];
+      const element = document.elementFromPoint(touch.clientX, touch.clientY);
+      const row = element?.closest('[data-drag-index]');
+
+      if (row) {
+        const idx = Number(row.getAttribute('data-drag-index'));
+        if (!isNaN(idx) && idx !== dragIndexRef.current) {
+          setDragOverIndex(idx);
+          touchCurrentIndexRef.current = idx;
+        }
       }
-    }
-  };
+    };
+
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => el.removeEventListener('touchmove', onTouchMove);
+  }, [canEdit]);
   
-  const handleTouchEnd = async (e: React.TouchEvent) => {
+  const handleTouchEnd = async (_e: React.TouchEvent) => {
     if (!canEdit) return;
     const toIndex = touchCurrentIndexRef.current;
   
@@ -3341,7 +3352,7 @@ const MandalaChart: React.FC = () => {
               </div>
             </div>
     
-            <div className="space-y-4">
+            <div className="space-y-4" ref={smallGoalListRef}>
               {smallChart.cells.map((cell, index) => {
                 const isCellHovered = hoveredCellId === cell.id;
                 const cellChanged = isSmallCellChanged(cell.id);
@@ -3382,9 +3393,8 @@ const MandalaChart: React.FC = () => {
                     onDragOver={(e) => handleSmallGoalDragOver(e, index)}
                     onDrop={() => handleSmallGoalDrop(index)}
                     onDragEnd={handleSmallGoalDragEnd}
-                    onTouchStart={(e) => handleTouchStart(e, index)}  // ← 追加
-                    onTouchMove={(e) => handleTouchMove(e)}            // ← 追加
-                    onTouchEnd={(e) => handleTouchEnd(e)}              // ← 追加
+                    onTouchStart={(e) => handleTouchStart(e, index)}
+                    onTouchEnd={(e) => handleTouchEnd(e)}
                   >
                     {isCellHovered && !cell.title && canEdit && (  // ★ canEdit条件を追加
                       <div

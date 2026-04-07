@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Service } from "../api/services/Service";
 import { withErrorHandling } from "../utils/apiErrorHandler";
-import complate_icon from "../assets/complate_icon.png";
 import plIcon from "../assets/icon_pl.png";
 import banner_1 from "../assets/banner/banner_1.png";
 import banner_2 from "../assets/banner/banner_2.png";
