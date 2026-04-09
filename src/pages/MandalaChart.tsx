@@ -282,8 +282,12 @@ const MandalaChart: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false); // アニメーション用
   const dragIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const touchCurrentIndexRef = useRef<number | null>(null);
   const smallGoalListRef = useRef<HTMLDivElement>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDraggingRef = useRef(false);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const [savedSmallCharts, setSavedSmallCharts] = useState<{[key: string]: MandalaSubChart}>({});
 
@@ -2497,10 +2501,22 @@ const MandalaChart: React.FC = () => {
   const handleSmallGoalDragEnd = () => {
     dragIndexRef.current = null;
     setDragOverIndex(null);
+    setDraggingIndex(null);
   };
-  const handleTouchStart = (_e: React.TouchEvent, index: number) => {
+  const handleTouchStart = (e: React.TouchEvent, index: number) => {
     if (!canEdit) return;
-    dragIndexRef.current = index;
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    isDraggingRef.current = false;
+
+    // 350ms 長押しでドラッグ開始
+    longPressTimerRef.current = setTimeout(() => {
+      dragIndexRef.current = index;
+      isDraggingRef.current = true;
+      setDraggingIndex(index);
+      // ハプティクスフィードバック（対応端末のみ）
+      navigator.vibrate?.(50);
+    }, 350);
   };
   
   // iOS Safari では React の onTouchMove が passive 登録されるため e.preventDefault() が無効になる。
@@ -2512,7 +2528,26 @@ const MandalaChart: React.FC = () => {
     if (!el) return;
 
     const onTouchMove = (e: TouchEvent) => {
-      if (!canEdit || dragIndexRef.current === null) return;
+      if (!canEdit) return;
+
+      // 長押し未確定の間に指が 8px 以上動いたらスクロールとみなしてキャンセル
+      if (!isDraggingRef.current) {
+        const pos = touchStartPosRef.current;
+        if (pos && e.touches[0]) {
+          const dx = Math.abs(e.touches[0].clientX - pos.x);
+          const dy = Math.abs(e.touches[0].clientY - pos.y);
+          if (dx > 8 || dy > 8) {
+            if (longPressTimerRef.current !== null) {
+              clearTimeout(longPressTimerRef.current);
+              longPressTimerRef.current = null;
+            }
+          }
+        }
+        return; // ドラッグ未開始なのでスクロールを妨げない
+      }
+
+      // 長押し確定後のドラッグ処理
+      if (dragIndexRef.current === null) return;
       e.preventDefault();
 
       const touch = e.touches[0];
@@ -2534,10 +2569,21 @@ const MandalaChart: React.FC = () => {
   
   const handleTouchEnd = async (_e: React.TouchEvent) => {
     if (!canEdit) return;
+
+    // 長押しタイマーが残っていればキャンセル（タップ扱い）
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+
+    // 長押し未確定ならドラッグしない
+    if (!isDraggingRef.current) return;
+
+    isDraggingRef.current = false;
+    setDraggingIndex(null);
     const toIndex = touchCurrentIndexRef.current;
-  
     touchCurrentIndexRef.current = null;
-  
+
     if (toIndex !== null && toIndex !== dragIndexRef.current) {
       await handleSmallGoalDrop(toIndex);
     } else {
@@ -3361,6 +3407,7 @@ const MandalaChart: React.FC = () => {
                 const delay = (index + 1) * 80;
 
                 const isDragOver = dragOverIndex === index;
+                const isBeingDragged = draggingIndex === index;
 
                 return (
                   <div
@@ -3375,15 +3422,25 @@ const MandalaChart: React.FC = () => {
                       maxWidth: '660px',
                       height: 'clamp(40px, 8vw, 48px)',
                       borderRadius: 'clamp(12px, 3vw, 20px)',
-                      background: isDragOver
+                      background: isBeingDragged
+                        ? 'rgba(19, 174, 103, 0.12)'
+                        : isDragOver
                         ? 'rgba(19, 174, 103, 0.08)'
                         : cellChanged
                         ? 'rgba(19, 174, 103, 0.05)'
                         : '#FFFFFF',
-                      boxShadow: isDragOver
+                      boxShadow: isBeingDragged
+                        ? '0px 8px 24px 0px rgba(19, 174, 103, 0.35)'
+                        : isDragOver
                         ? '0px 4px 16px 0px rgba(19, 174, 103, 0.25)'
                         : '0px 4px 12px 0px rgba(72, 82, 84, 0.1)',
-                      border: isDragOver ? '2px solid rgba(19, 174, 103, 0.4)' : '2px solid transparent',
+                      border: isBeingDragged
+                        ? '2px solid rgba(19, 174, 103, 0.6)'
+                        : isDragOver
+                        ? '2px solid rgba(19, 174, 103, 0.4)'
+                        : '2px solid transparent',
+                      opacity: isBeingDragged ? 0.75 : 1,
+                      transform: isBeingDragged ? 'scale(1.02)' : undefined,
                       padding: 'clamp(6px, 1.5vw, 8px) clamp(8px, 2vw, 12px)',
                       gap: 'clamp(8px, 2vw, 12px)',
                       transitionDelay: `${delay}ms`,
