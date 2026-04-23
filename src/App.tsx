@@ -19,6 +19,7 @@ import Setup from "./pages/Setup";
 import Contact from "./pages/Contact";
 import Terms from "./pages/Terms";
 import PlanselectModal, { type PlanId } from "./components/PlanselectModal";
+import TutorialModal from "./components/TutorialModal";
 // import Ranking from "./pages/Ranking";
 //import ClientManagement from "./pages/ClientManagement";
 import AdminUserManagement from "./pages/AdminUserManagement";
@@ -128,7 +129,7 @@ const SupportRoute: React.FC = () => {
 const AppContent: React.FC = () => {
   const { showTermsModal, closeTermsModal, logout, user, handlePlanUpgrade } = useAuth();
   const [showPlanModal, setShowPlanModal] = useState(false);
-
+  const [showTutorialModal, setShowTutorialModal] = useState(false);
   useEffect(() => {
     if (showTermsModal) return;
     if (!user) return; // ← 追加：ユーザーがいない場合はスキップ
@@ -149,7 +150,13 @@ const AppContent: React.FC = () => {
     setShowPlanModal(false);
     document.cookie = "showPlanSelectModal=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
     localStorage.removeItem("showPlanSelectModal");
-    // incomplete状態のサブスクリプションがあればキャンセル
+  
+    // チュートリアルcookieが残っていれば表示
+    const tutFlag = localStorage.getItem("showTutorialModal");
+    if (tutFlag === "true") {
+      setShowTutorialModal(true);
+    }
+  
     if (user) {
       try {
         await StripeService.postApiStripeSubscriptionCancelIncomplete(user.id);
@@ -158,7 +165,7 @@ const AppContent: React.FC = () => {
           console.error("Stripeキャンセルエラー:", err);
         }
       }
-   }
+    }
   };
   
   // ↓ onCompleteに渡す関数を別で作成
@@ -171,8 +178,24 @@ const AppContent: React.FC = () => {
       localStorage.removeItem("showPlanSelectModal");
       document.cookie = "showPlanSelectModal=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
     } else {
-      await handlePlanModalClose();
+      await handlePlanModalClose(); // ← これで無料選択時もチュートリアルが起動する
     }
+  };
+
+  // アップグレード完了モーダルを閉じたときもチュートリアルを起動
+  const handleUpgradeModalClose = () => {
+    setShowUpgradeModal(false);
+    const tutFlag = localStorage.getItem("showTutorialModal");
+    if (tutFlag === "true") {
+      setShowTutorialModal(true);
+    }
+  };
+
+  // チュートリアル完了
+  const handleTutorialClose = () => {
+    setShowTutorialModal(false);
+    localStorage.removeItem("showTutorialModal");
+    document.cookie = "showTutorialModal=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
   };
   const location = useLocation();
 
@@ -451,7 +474,7 @@ const AppContent: React.FC = () => {
       {/* アップグレード完了モーダル */}
       {showUpgradeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black opacity-50" onClick={() => setShowUpgradeModal(false)} />
+          <div className="fixed inset-0 bg-black opacity-50" onClick={handleUpgradeModalClose} />
           <div
             className="relative bg-white rounded-3xl shadow-xl p-8 text-center"
             style={{ width: "100%", maxWidth: "400px" }}
@@ -472,7 +495,7 @@ const AppContent: React.FC = () => {
               メンターとの相談チャットや<br />アドバイス機能がご利用いただけます。
             </p>
             <button
-              onClick={() => setShowUpgradeModal(false)}
+              onClick={handleUpgradeModalClose}
               className="w-full py-3 rounded-full font-semibold text-sm text-white"
               style={{ background: "linear-gradient(135deg, #F067A6, #d44f8e)" }}
             >
@@ -480,6 +503,10 @@ const AppContent: React.FC = () => {
             </button>
           </div>
         </div>
+      )}
+      {/* チュートリアルモーダル（初回ログイン時） */}
+      {showTutorialModal && (
+        <TutorialModal onClose={handleTutorialClose} />
       )}
     </>
   );

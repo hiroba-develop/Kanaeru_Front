@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../hooks/usePermission";
 import CenterGoalModal from "../components/CenterGoalModal";  
 import GoalInputModal from "../components/GoalInputModal";
+import TutorialModal from "../components/TutorialModal";
 import AchievementPopup from "../components/AchievementPopup";
 import level1Icon from "../assets/mandalaLevelIcon/level1.png";
 import level2Icon from "../assets/mandalaLevelIcon/level2.png";
@@ -87,7 +88,7 @@ const LargeRingProgress: React.FC<LargeRingProgressProps> = ({
 
     const circumference = 2 * Math.PI * radius;
     const dashArray = circumference;
-    const dashOffset = -circumference * (1 - ratio);
+    const dashOffset = circumference * (1 - ratio);
 
     circles.push(
       <circle
@@ -100,7 +101,7 @@ const LargeRingProgress: React.FC<LargeRingProgressProps> = ({
         strokeWidth={strokeWidth}
         strokeDasharray={dashArray}
         strokeDashoffset={dashOffset}
-        transform={`rotate(-90 ${cx} ${cy})`}
+        transform={`rotate(0 ${cx} ${cy})`}
         strokeLinecap="round"
       />
     );
@@ -157,7 +158,7 @@ const MultiRingProgress: React.FC<MultiRingProgressProps> = ({
   
   const circumference = 2 * Math.PI * radius;
   const dashArray = circumference;
-  const dashOffset = -circumference * (1 - ratio);
+  const dashOffset = circumference * (1 - ratio);
 
   return (
     <svg
@@ -179,7 +180,7 @@ const MultiRingProgress: React.FC<MultiRingProgressProps> = ({
         strokeWidth={strokeWidth}
         strokeDasharray={dashArray}
         strokeDashoffset={dashOffset}
-        transform={`rotate(-90 ${cx} ${cy})`}
+        transform={`rotate(0 ${cx} ${cy})`}
         strokeLinecap="round"
       />
     </svg>
@@ -280,14 +281,24 @@ const MandalaChart: React.FC = () => {
   const [selectedMiddleCellId, setSelectedMiddleCellId] = useState<string | null>(null);
   const [hoveredCellId, setHoveredCellId] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false); // アニメーション用
-  const dragIndexRef = useRef<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
-  const touchCurrentIndexRef = useRef<number | null>(null);
   const smallGoalListRef = useRef<HTMLDivElement>(null);
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isDraggingRef = useRef(false);
-  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const dragIndexRef = useRef<number | null>(null);
+  const touchDragRef = useRef({
+    timer: null as ReturnType<typeof setTimeout> | null,
+    fromIndex: null as number | null,
+    toIndex: null as number | null,
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    draggingIndex: null as number | null,   // UI表示用
+    dragOverIndex: null as number | null,   // UI表示用
+  });
+  
+  // stateはUI描画のみに使用（判定ロジックには使わない）
+  const [dragVisual, setDragVisual] = useState<{
+    draggingIndex: number | null;
+    dragOverIndex: number | null;
+  }>({ draggingIndex: null, dragOverIndex: null });
 
   const [savedSmallCharts, setSavedSmallCharts] = useState<{[key: string]: MandalaSubChart}>({});
 
@@ -308,6 +319,7 @@ const MandalaChart: React.FC = () => {
   const [centerStartDate, setCenterStartDate] = useState("");
 
   const [centerGoalModalOpen, setCenterGoalModalOpen] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const [centerGoal, setCenterGoal] = useState("");
 
@@ -2446,26 +2458,21 @@ const MandalaChart: React.FC = () => {
 
   const handleSmallGoalDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
-    if (dragIndexRef.current !== null && dragIndexRef.current !== index) {
-      setDragOverIndex(index);
-    }
+    setDragVisual(prev => ({ ...prev, dragOverIndex: index }));
   };
 
   const handleSmallGoalDrop = async (index: number) => {
     const fromIndex = dragIndexRef.current;
     dragIndexRef.current = null;
-    setDragOverIndex(null);
-
+    setDragVisual(prev => ({ ...prev, dragOverIndex: null }));
+  
     if (fromIndex === null || fromIndex === index || !selectedMiddleCellId) return;
-
+  
     const oldCells = smallCharts[selectedMiddleCellId].cells;
     const newCells = [...oldCells];
-
-    // 常にスワップ：
-    // - ドロップ先に目標がある場合 → 2つのセルを入れ替え
-    // - ドロップ先が空の場合 → 空スロットと入れ替え（他のpositionは変わらない）
     [newCells[fromIndex], newCells[index]] = [newCells[index], newCells[fromIndex]];
-
+  
+    // UIを先に更新
     setSmallCharts(prev => ({
       ...prev,
       [selectedMiddleCellId]: {
@@ -2473,124 +2480,253 @@ const MandalaChart: React.FC = () => {
         cells: newCells,
       },
     }));
-
-    // 入れ替わった2つのセルのみAPI呼び出し（smallGoalIdがある場合のみ）
-    const reorderCalls: ReturnType<typeof Service.postApiSmallGoalsReorder>[] = [];
-
-    const movedToTarget = newCells[index];
-    if (movedToTarget.smallGoalId) {
-      reorderCalls.push(
-        Service.postApiSmallGoalsReorder(movedToTarget.smallGoalId, { position: index + 1 })
-      );
-    }
-
-    const movedToFrom = newCells[fromIndex];
-    if (movedToFrom.smallGoalId) {
-      reorderCalls.push(
-        Service.postApiSmallGoalsReorder(movedToFrom.smallGoalId, { position: fromIndex + 1 })
-      );
-    }
-
+  
+    // 変更前: Promise.all（同時実行）→ 変更後: 順番に実行してposition重複を防ぐ
     try {
-      await Promise.all(reorderCalls);
+      const movedToTarget = newCells[index];
+      if (movedToTarget.smallGoalId) {
+        await Service.postApiSmallGoalsReorder(movedToTarget.smallGoalId, { position: index + 1 });
+      }
+      const movedToFrom = newCells[fromIndex];
+      if (movedToFrom.smallGoalId) {
+        await Service.postApiSmallGoalsReorder(movedToFrom.smallGoalId, { position: fromIndex + 1 });
+      }
     } catch (error) {
       console.error('小目標の並び替えに失敗しました:', error);
+      // 失敗時はUIを元に戻す
+      setSmallCharts(prev => ({
+        ...prev,
+        [selectedMiddleCellId]: {
+          ...prev[selectedMiddleCellId],
+          cells: oldCells,
+        },
+      }));
     }
   };
 
   const handleSmallGoalDragEnd = () => {
-    dragIndexRef.current = null;
-    setDragOverIndex(null);
-    setDraggingIndex(null);
-  };
-  const handleTouchStart = (e: React.TouchEvent, index: number) => {
-    if (!canEdit) return;
-    const touch = e.touches[0];
-    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
-    isDraggingRef.current = false;
-
-    // 350ms 長押しでドラッグ開始
-    longPressTimerRef.current = setTimeout(() => {
-      dragIndexRef.current = index;
-      isDraggingRef.current = true;
-      setDraggingIndex(index);
-      // ハプティクスフィードバック（対応端末のみ）
-      navigator.vibrate?.(50);
-    }, 350);
+    setDragVisual({ draggingIndex: null, dragOverIndex: null });
   };
   
-  // iOS Safari では React の onTouchMove が passive 登録されるため e.preventDefault() が無効になる。
-  // リストコンテナに直接 { passive: false } でリスナーを登録することでスクロールを抑制する。
-  // viewLevel が "small" に切り替わった後に div がマウントされるため、
-  // viewLevel を依存配列に含めて確実にリスナーを登録する。
+  // ドラッグ状態の共通リセット
+  const resetTouchDragState = useCallback(() => {
+    const ref = touchDragRef.current;
+    if (ref.timer !== null) {
+      clearTimeout(ref.timer);
+      ref.timer = null;
+    }
+    ref.fromIndex = null;
+    ref.toIndex = null;
+    ref.isDragging = false;
+    ref.startX = 0;
+    ref.startY = 0;
+    ref.draggingIndex = null;
+    ref.dragOverIndex = null;
+    setDragVisual({ draggingIndex: null, dragOverIndex: null });
+  }, []);
+
+  // ① handleTouchStart修正
+  const handleTouchStart = useCallback((e: React.TouchEvent, index: number) => {
+    if (!canEdit) return;
+  
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'BUTTON') return;
+  
+    // 前の状態を完全クリア
+    const ref = touchDragRef.current;
+    if (ref.timer !== null) {
+      clearTimeout(ref.timer);
+      ref.timer = null;
+    }
+    ref.fromIndex = null;
+    ref.toIndex = null;
+    ref.isDragging = false;
+    ref.draggingIndex = null;
+    ref.dragOverIndex = null;
+  
+    const touch = e.touches[0];
+    ref.startX = touch.clientX;
+    ref.startY = touch.clientY;
+  
+    ref.timer = setTimeout(() => {
+      ref.timer = null;
+      ref.fromIndex = index;
+      ref.toIndex = index;
+      ref.isDragging = true;
+      ref.draggingIndex = index;
+      ref.dragOverIndex = index;
+      // stateはここで1回だけ更新
+      setDragVisual({ draggingIndex: index, dragOverIndex: index });
+      navigator.vibrate?.(50);
+    }, 400);
+  }, [canEdit]);
+
+  const handleTouchEnd = useCallback(async (_e: React.TouchEvent) => {
+    if (!canEdit) return;
+  
+    const ref = touchDragRef.current;
+  
+    // タイマー中（長押し未完了）はリセットのみ
+    if (ref.timer !== null) {
+      clearTimeout(ref.timer);
+      ref.timer = null;
+      ref.isDragging = false;
+      setDragVisual({ draggingIndex: null, dragOverIndex: null });
+      return;
+    }
+  
+    // ドラッグ未開始
+    if (!ref.isDragging) {
+      return;
+    }
+  
+    const fromIndex = ref.fromIndex;
+    const toIndex = ref.toIndex;
+
+    const oldCells = selectedMiddleCellId ? smallCharts[selectedMiddleCellId].cells : [];
+  
+    // 先にリセット
+    ref.fromIndex = null;
+    ref.toIndex = null;
+    ref.isDragging = false;
+    ref.draggingIndex = null;
+    ref.dragOverIndex = null;
+    setDragVisual({ draggingIndex: null, dragOverIndex: null });
+  
+    if (
+      fromIndex !== null &&
+      toIndex !== null &&
+      toIndex !== fromIndex &&
+      selectedMiddleCellId
+    ) {
+      const oldCells = smallCharts[selectedMiddleCellId].cells;
+      const newCells = [...oldCells];
+      [newCells[fromIndex], newCells[toIndex]] = [newCells[toIndex], newCells[fromIndex]];
+  
+      setSmallCharts(prev => ({
+        ...prev,
+        [selectedMiddleCellId]: { ...prev[selectedMiddleCellId], cells: newCells },
+      }));
+  
+      const reorderCalls = [];
+      if (newCells[toIndex].smallGoalId) {
+        reorderCalls.push(
+          Service.postApiSmallGoalsReorder(newCells[toIndex].smallGoalId!, { position: toIndex + 1 })
+        );
+      }
+      if (newCells[fromIndex].smallGoalId) {
+        reorderCalls.push(
+          Service.postApiSmallGoalsReorder(newCells[fromIndex].smallGoalId!, { position: fromIndex + 1 })
+        );
+      }
+      try {
+        if (newCells[toIndex].smallGoalId) {
+          await Service.postApiSmallGoalsReorder(newCells[toIndex].smallGoalId!, { position: toIndex + 1 });
+        }
+        if (newCells[fromIndex].smallGoalId) {
+          await Service.postApiSmallGoalsReorder(newCells[fromIndex].smallGoalId!, { position: fromIndex + 1 });
+        }
+      } catch (error) {
+        console.error('小目標の並び替えに失敗しました:', error);
+        // 失敗時はUIを元に戻す
+        if (selectedMiddleCellId) {
+          setSmallCharts(prev => ({
+            ...prev,
+            [selectedMiddleCellId]: {
+              ...prev[selectedMiddleCellId],
+              cells: oldCells,
+            },
+          }));
+        }
+      }
+    }
+  }, [canEdit, selectedMiddleCellId, smallCharts]);
+
+  // touchmoveをpassive:falseで登録（iOS対応）
   useEffect(() => {
     const el = smallGoalListRef.current;
     if (!el) return;
-
+  
     const onTouchMove = (e: TouchEvent) => {
       if (!canEdit) return;
-
-      // 長押し未確定の間に指が 8px 以上動いたらスクロールとみなしてキャンセル
-      if (!isDraggingRef.current) {
-        const pos = touchStartPosRef.current;
-        if (pos && e.touches[0]) {
-          const dx = Math.abs(e.touches[0].clientX - pos.x);
-          const dy = Math.abs(e.touches[0].clientY - pos.y);
-          if (dx > 8 || dy > 8) {
-            if (longPressTimerRef.current !== null) {
-              clearTimeout(longPressTimerRef.current);
-              longPressTimerRef.current = null;
+  
+      const ref = touchDragRef.current;
+  
+      // 長押し判定中
+      if (ref.timer !== null) {
+        const touch = e.touches[0];
+        const dx = Math.abs(touch.clientX - ref.startX);
+        const dy = Math.abs(touch.clientY - ref.startY);
+        e.preventDefault();
+        if (dx > 10 || dy > 10) {
+          clearTimeout(ref.timer);
+          ref.timer = null;
+        }
+        return;
+      }
+  
+      // ドラッグ中
+      if (ref.isDragging) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+        const row = element?.closest('[data-drag-index]');
+        if (row) {
+          const idx = Number(row.getAttribute('data-drag-index'));
+          if (!isNaN(idx) && idx !== ref.draggingIndex) {
+            if (ref.dragOverIndex !== idx) {
+              ref.dragOverIndex = idx;
+              ref.toIndex = idx;
+              // refで管理してstateは差分があるときだけ更新
+              setDragVisual(prev =>
+                prev.dragOverIndex !== idx
+                  ? { ...prev, dragOverIndex: idx }
+                  : prev
+              );
             }
           }
         }
-        return; // ドラッグ未開始なのでスクロールを妨げない
-      }
-
-      // 長押し確定後のドラッグ処理
-      if (dragIndexRef.current === null) return;
-      e.preventDefault();
-
-      const touch = e.touches[0];
-      const element = document.elementFromPoint(touch.clientX, touch.clientY);
-      const row = element?.closest('[data-drag-index]');
-
-      if (row) {
-        const idx = Number(row.getAttribute('data-drag-index'));
-        if (!isNaN(idx) && idx !== dragIndexRef.current) {
-          setDragOverIndex(idx);
-          touchCurrentIndexRef.current = idx;
-        }
       }
     };
-
-    el.addEventListener('touchmove', onTouchMove, { passive: false });
-    return () => el.removeEventListener('touchmove', onTouchMove);
-  }, [canEdit, viewLevel]);
   
-  const handleTouchEnd = async (_e: React.TouchEvent) => {
-    if (!canEdit) return;
+    const onTouchCancel = () => {
+      // iOSはタイマー発火直後にtouchcancelを送ることがある
+      // isDragging中はもちろん、タイマー発火直後（isDragging=trueになった瞬間）も無視する
+      const ref = touchDragRef.current;
+      if (ref.isDragging || ref.draggingIndex !== null) return;
+      if (ref.timer !== null) {
+        clearTimeout(ref.timer);
+        ref.timer = null;
+      }
+      setDragVisual({ draggingIndex: null, dragOverIndex: null });
+    };
+  
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchcancel', onTouchCancel);
+    return () => {
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchcancel', onTouchCancel);
+    };
+  }, [canEdit, viewLevel]);
 
-    // 長押しタイマーが残っていればキャンセル（タップ扱い）
-    if (longPressTimerRef.current !== null) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
+  // ドラッグ中はbodyのスクロールを止める
+  useEffect(() => {
+    if (dragVisual.draggingIndex === null) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [dragVisual.draggingIndex]);
 
-    // 長押し未確定ならドラッグしない
-    if (!isDraggingRef.current) return;
-
-    isDraggingRef.current = false;
-    setDraggingIndex(null);
-    const toIndex = touchCurrentIndexRef.current;
-    touchCurrentIndexRef.current = null;
-
-    if (toIndex !== null && toIndex !== dragIndexRef.current) {
-      await handleSmallGoalDrop(toIndex);
-    } else {
-      dragIndexRef.current = null;
-      setDragOverIndex(null);
-    }
-  };
+  // アンマウント時のクリーンアップ
+  useEffect(() => {
+    return () => {
+      const ref = touchDragRef.current;
+      if (ref.timer !== null) {
+        clearTimeout(ref.timer);
+        ref.timer = null;
+      }
+    };
+  }, []);
 
   const updateMiddleAchievement = (
     middleCellId: string,
@@ -2598,7 +2734,10 @@ const MandalaChart: React.FC = () => {
   ) => {
     
     const checkedCount = smallCells.filter((c) => c.isChecked).length;
-    const achievement = Math.round((checkedCount / 10) * 100);
+    const filledCount = smallCells.filter((c) => c.title).length;  // 設定されている数
+    const achievement = filledCount > 0
+      ? Math.round((checkedCount / filledCount) * 100)
+      : 0;
 
     Object.entries(middleCharts).forEach(([largeId, middleChart]) => {
       let hasUpdate = false;
@@ -2722,24 +2861,20 @@ const MandalaChart: React.FC = () => {
   };
 
   const getMiddleCellProgress = (middleCellId: string) => {
-    // middleChartsから該当するセルを探してprogressを取得
     let progress = 0;
-    
+  
     Object.values(middleCharts).forEach((middleChart) => {
       const cell = middleChart.cells.find((c) => c.id === middleCellId);
       if (cell) {
-        progress = cell.achievement || 0; // achievementにはprogressが格納されている
+        progress = cell.achievement || 0;
       }
     });
   
-    // progressを0-1の範囲に変換（progressは0-100の値）
-    const ratio = progress / 100;
-    const totalRings = 10;
-    const filledRings = Math.round(totalRings * ratio);
-  
+    // progressをそのまま比率として使い、100分率でリングを1本表示
+    // filledRings/totalRingsの比率 = progress/100 になるよう固定値で計算
     return {
-      filledRings: filledRings,
-      totalRings: totalRings,
+      filledRings: progress,
+      totalRings: 100,
       isCompleted: progress >= 100,
     };
   };
@@ -3142,6 +3277,8 @@ const MandalaChart: React.FC = () => {
 
               const cell = middleChart.cells[cellIndex];
               const progress = getMiddleCellProgress(cell.id);
+              if (cell.title) console.log('cell:', cell.id, 'progress:', JSON.stringify(progress), 'achievement:', cell.achievement);
+
               const isCellHovered = hoveredCellId === cell.id;
 
               const mandalaCompleted = progress.isCompleted;
@@ -3400,21 +3537,21 @@ const MandalaChart: React.FC = () => {
               </div>
             </div>
     
-            <div className="space-y-4" ref={smallGoalListRef}>
+            <div className="space-y-4" ref={smallGoalListRef} style={{ paddingBottom: '40px' }}>
               {smallChart.cells.map((cell, index) => {
                 const isCellHovered = hoveredCellId === cell.id;
                 const cellChanged = isSmallCellChanged(cell.id);
                 const delay = (index + 1) * 80;
 
-                const isDragOver = dragOverIndex === index;
-                const isBeingDragged = draggingIndex === index;
+                const isDragOver = dragVisual.dragOverIndex === index;
+                const isBeingDragged = dragVisual.draggingIndex === index;
 
                 return (
                   <div
                     key={cell.id}
                     data-drag-index={index}
                     draggable={canEdit}
-                    className={`flex items-center transition-all duration-500 relative group ${
+                    className={`flex items-center transition-all duration-500 relative group select-none [-webkit-touch-callout:none] [-webkit-user-select:none] ${
                       isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-8'
                     }`}
                     style={{
@@ -3445,6 +3582,9 @@ const MandalaChart: React.FC = () => {
                       gap: 'clamp(8px, 2vw, 12px)',
                       transitionDelay: `${delay}ms`,
                       cursor: canEdit ? 'default' : undefined,
+                      WebkitUserSelect: 'none',
+                      WebkitTouchCallout: 'none',
+                      touchAction: 'none',
                     }}
                     onMouseEnter={() => setHoveredCellId(cell.id)}
                     onMouseLeave={() => setHoveredCellId(null)}
@@ -3452,6 +3592,7 @@ const MandalaChart: React.FC = () => {
                     onDragOver={(e) => handleSmallGoalDragOver(e, index)}
                     onDrop={() => handleSmallGoalDrop(index)}
                     onDragEnd={handleSmallGoalDragEnd}
+                    onContextMenu={(e) => e.preventDefault()}
                     onTouchStart={(e) => handleTouchStart(e, index)}
                     onTouchEnd={(e) => handleTouchEnd(e)}
                   >
@@ -3542,6 +3683,9 @@ const MandalaChart: React.FC = () => {
                         value={cell.title}
                         maxLength={30}
                         readOnly={!canEdit}  // ★ 追加
+                        onTouchStart={(e) => {
+                          e.stopPropagation();
+                        }}
                         onChange={(e) => {
                           if (canEdit) {  // ★ 追加
                             const newTitle = e.target.value;
@@ -3569,7 +3713,8 @@ const MandalaChart: React.FC = () => {
                           border: 'none',
                           outline: 'none',
                           boxShadow: 'none',
-                          cursor: canEdit ? 'text' : 'default'  // ★ 追加
+                          cursor: canEdit ? 'text' : 'default',
+                          pointerEvents: dragVisual.draggingIndex !== null ? 'none' : 'auto',
                         }}
                         onFocus={(e) => {
                           e.target.style.outline = 'none';
@@ -3687,6 +3832,25 @@ const MandalaChart: React.FC = () => {
         {viewLevel === "middle" && renderMiddleView()}
         {viewLevel === "small" && renderSmallView()}
       </div>
+
+      {/* チュートリアルボタン（固定・左下） */}
+      <button
+        onClick={() => setShowTutorial(true)}
+        className="fixed bottom-6 left-4 lg:left-[220px] xl:left-[236px] flex items-center gap-1.5 rounded-full shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+        style={{
+          zIndex: 20,
+          background: '#FFFFFF',
+          border: '1px solid #E5E7EB',
+          padding: '8px 14px',
+          fontSize: '12px',
+          fontWeight: 500,
+          color: '#6B7280',
+        }}
+        aria-label="チュートリアルを見る"
+      >
+        <span style={{ fontSize: '14px' }}>?</span>
+        使い方を見る
+      </button>
       {plConflictDialog.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
@@ -3847,6 +4011,10 @@ const MandalaChart: React.FC = () => {
         initialGoalType={goalInputModal.currentGoalType}
         cellType={goalInputModal.cellType}
       />
+
+      {showTutorial && (
+        <TutorialModal onClose={() => setShowTutorial(false)} />
+      )}
     </div>
   );
 };

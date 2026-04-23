@@ -402,8 +402,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
         if (lastLoginAt === null || lastLoginAt === undefined) {
           setCookie("showPlanSelectModal", "true", 1);
+          setCookie("showTutorialModal", "true", 1); // ← 追加
         } else {
           deleteCookie("showPlanSelectModal");
+          deleteCookie("showTutorialModal"); // ← 追加
         }
       }
       
