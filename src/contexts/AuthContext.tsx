@@ -475,9 +475,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const handlePlanUpgrade = () => {
     updateUser({ role: "4" });
-    setTimeout(async () => {
-      await refreshUser();
-    }, 5000);
+    // リロードで確実にrole:4を反映させるため、ここでAPIを再取得しない
+    // （タイマー中にStripe webhookが未反映の場合、role:3で上書きされてしまうため）
   };
 
   const loadUserSetup = async () => {

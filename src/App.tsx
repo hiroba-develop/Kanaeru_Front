@@ -187,7 +187,11 @@ const AppContent: React.FC = () => {
     setShowUpgradeModal(false);
     const tutFlag = localStorage.getItem("showTutorialModal");
     if (tutFlag === "true") {
+      // チュートリアルが残っていれば表示し、チュートリアル終了時にリロード
       setShowTutorialModal(true);
+    } else {
+      // チュートリアルなしの場合は即リロードしてrole:4を反映
+      window.location.reload();
     }
   };
 
@@ -196,6 +200,8 @@ const AppContent: React.FC = () => {
     setShowTutorialModal(false);
     localStorage.removeItem("showTutorialModal");
     document.cookie = "showTutorialModal=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+    // チュートリアル終了後にリロードしてrole:4を反映
+    window.location.reload();
   };
   const location = useLocation();
 

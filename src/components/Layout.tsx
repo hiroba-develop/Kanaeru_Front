@@ -965,7 +965,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* アップグレード完了モーダル */}
       {showUpgradeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black opacity-50" onClick={() => setShowUpgradeModal(false)} />
+          <div className="fixed inset-0 bg-black opacity-50" onClick={() => { setShowUpgradeModal(false); window.location.reload(); }} />
           <div
             className="relative bg-white rounded-3xl shadow-xl p-8 text-center"
             style={{ width: "100%", maxWidth: "400px" }}
@@ -986,7 +986,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               メンターとの相談チャットや<br />アドバイス機能がご利用いただけます。
             </p>
             <button
-              onClick={() => setShowUpgradeModal(false)}
+              onClick={() => { setShowUpgradeModal(false); window.location.reload(); }}
               className="w-full py-3 rounded-full font-semibold text-sm text-white"
               style={{ background: "linear-gradient(135deg, #F067A6, #d44f8e)" }}
             >
