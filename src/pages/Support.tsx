@@ -882,17 +882,7 @@ const Support: React.FC = () => {
                       el.style.height = "auto";
                       el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
                     }}
-                    onKeyDown={(e) => {
-                      // スマホ（タッチデバイス）では Enter キー送信を無効化
-                      const isTouchDevice = navigator.maxTouchPoints > 0;
-                      if (isTouchDevice) return;
-                      
-                      // PC：Shift+Enter で改行、Enter のみで送信
-                      if (e.key === "Enter" && !e.shiftKey && !isSending) {
-                        e.preventDefault();
-                        handleSendMessage();
-                      }
-                    }}
+                    onKeyDown={undefined}
                   />
                   <button
                     onClick={handleSendMessage}
@@ -909,7 +899,7 @@ const Support: React.FC = () => {
                 </div>
                 <div className="flex items-center justify-between px-1">
                   <span className="text-xs text-text/40 hidden sm:block">
-                    Enter で送信　Shift+Enter で改行
+                  Enter で改行できます　送信はボタンを押してください
                   </span>
                   {chatMessage.trim() && (
                     <span className="text-xs text-text/70">{chatMessage.length}/1000文字</span>
