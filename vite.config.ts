@@ -15,6 +15,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       }
-    }
+    },
+    watch: {
+      ignored: [
+        '**/Dockerfile',
+        '**/.dockerignore',
+        '**/docker-compose*.yml',
+      ],
+    },
   },
 });
