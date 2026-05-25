@@ -1133,6 +1133,57 @@ paths:
                   message:
                     type: string
 
+  /api/support/reaction/create:
+    put:
+      tags:
+        - サポート画面
+      summary: サポート画面 リアクション登録
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                messageSeq:
+                  type: integer
+                reactionFlag:
+                  type: integer
+      responses:
+        '200':
+          description: 登録成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/support/reaction/delete:
+    put:
+      tags:
+        - サポート画面
+      summary: サポート画面 リアクション削除
+      parameters:
+        - name: messageSeq
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  message:
+                    type: string
+
   /api/availability:
     get:
       tags:
@@ -2710,6 +2761,8 @@ components:
         updatedAt:
           type: string
           format: date-time
+        reactionFlag:
+          type: integer
 
     AvailabilitySchema:
       type: object

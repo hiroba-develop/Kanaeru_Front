@@ -116,6 +116,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarCacheKey, setAvatarCacheKey] = useState<number>(() => Date.now());
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   
@@ -158,6 +159,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       setAvatarPreview(user.avatar);
     }
   }, [user?.avatar]);
+
+  // blob URL にはキャッシュキーを付けない（blob は常に最新）
+  const resolvedAvatarSrc = (url: string | null): string | undefined => {
+    if (!url) return undefined;
+    if (url.startsWith('blob:')) return url;
+    return `${url}?_t=${avatarCacheKey}`;
+  };
 
   const handleLogout = async () => {
     if (window.confirm("ログアウトしますか？")) {
@@ -274,6 +282,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       if (response.responseStatus === 1 && response.imageUrl) {
         updateUser({ avatar: response.imageUrl });
         setAvatarPreview(response.imageUrl);
+        setAvatarCacheKey(Date.now());
       } else {
         alert('画像のアップロードに失敗しました。');
         if (user?.avatar) {
@@ -448,7 +457,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </div>
           ) : avatarPreview ? (
             <img
-              src={avatarPreview}
+              src={resolvedAvatarSrc(avatarPreview)}
               alt={user?.name || "avatar"}
               className="h-full w-full object-cover"
             />
@@ -574,7 +583,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       </div>
                     ) : avatarPreview ? (
                       <img
-                        src={avatarPreview}
+                        src={resolvedAvatarSrc(avatarPreview)}
                         alt={user?.name || "avatar"}
                         className="h-full w-full object-cover"
                       />

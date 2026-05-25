@@ -12,5 +12,6 @@ export type DmMessagesSchema = {
     readAt?: string;
     createdAt?: string;
     updatedAt?: string;
+    reactionFlag?: number;
 };
 

@@ -855,6 +855,47 @@ export class Service {
         });
     }
     /**
+     * サポート画面 リアクション登録
+     * @param requestBody
+     * @returns any 登録成功
+     * @throws ApiError
+     */
+    public static putApiSupportReactionCreate(
+        requestBody: {
+            messageSeq?: number;
+            reactionFlag?: number;
+        },
+    ): CancelablePromise<{
+        responseStatus?: number;
+    }> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/support/reaction/create',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * サポート画面 リアクション削除
+     * @param messageSeq
+     * @returns any 更新成功
+     * @throws ApiError
+     */
+    public static putApiSupportReactionDelete(
+        messageSeq: number,
+    ): CancelablePromise<{
+        responseStatus?: number;
+        message?: string;
+    }> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/support/reaction/delete',
+            query: {
+                'messageSeq': messageSeq,
+            },
+        });
+    }
+    /**
      * サポート画面　予約可能日時取得
      * @param userId
      * @param date

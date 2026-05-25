@@ -28,6 +28,7 @@ type Message = {
   content: string;
   createdAt: string;
   readAt: string | null;
+  reactionFlag: 0 | 1;
 };
 
 type Advice = {
@@ -250,6 +251,40 @@ const Support: React.FC = () => {
     }
   };
 
+  const handleAddReaction = async (messageSeq: number) => {
+    try {
+      const response = await withErrorHandling(() =>
+        Service.putApiSupportReactionCreate({ messageSeq, reactionFlag: 1 })
+      );
+      if (response.responseStatus === 1) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.messageSeq === messageSeq ? { ...m, reactionFlag: 1 } : m
+          )
+        );
+      }
+    } catch (error) {
+      console.error("リアクション登録エラー:", error);
+    }
+  };
+
+  const handleDeleteReaction = async (messageSeq: number) => {
+    try {
+      const response = await withErrorHandling(() =>
+        Service.putApiSupportReactionDelete(messageSeq)
+      );
+      if (response.responseStatus === 1) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.messageSeq === messageSeq ? { ...m, reactionFlag: 0 } : m
+          )
+        );
+      }
+    } catch (error) {
+      console.error("リアクション削除エラー:", error);
+    }
+  };
+
   const markMessagesAsRead = async (unreadMessages: Message[]) => {
     if (!user?.id || unreadMessages.length === 0) return;
     try {
@@ -317,6 +352,7 @@ const Support: React.FC = () => {
               content: m.content ?? content,
               createdAt: m.createdAt ?? new Date().toISOString(),
               readAt: m.readAt ?? null,
+              reactionFlag: 0,
             },
           ]);
         } else {
@@ -331,6 +367,7 @@ const Support: React.FC = () => {
               content,
               createdAt: new Date().toISOString(),
               readAt: null,
+              reactionFlag: 0,
             },
           ]);
         }
@@ -420,6 +457,7 @@ const Support: React.FC = () => {
                 content: m.content ?? "",
                 createdAt: m.createdAt ?? new Date().toISOString(),
                 readAt: m.readAt ?? null,
+                reactionFlag: (m.reactionFlag === 1 ? 1 : 0) as 0 | 1,
               }));
             setMessages(mapped);
             const unread = mapped.filter((m) => m.senderId !== user.id && !m.readAt);
@@ -783,6 +821,7 @@ const Support: React.FC = () => {
                       {dayMessages.map((message) => {
                         const isOwn = message.senderId === user?.id;
                         const isRead = !!(message.readAt?.trim());
+                        const hasReaction = message.reactionFlag === 1;
                         return (
                           <div key={message.messageSeq} className="mb-4">
                             <div className={`flex items-end gap-2 ${isOwn ? "flex-row-reverse" : "flex-row"}`}>
@@ -799,13 +838,44 @@ const Support: React.FC = () => {
                                   </div>
                                 )}
                               </div>
-                              <div className={`rounded-3xl px-3 sm:px-4 py-2 sm:py-2.5 shadow-sm max-w-[72%] sm:max-w-[60%] ${isOwn ? "bg-primary text-white" : "bg-green-100 text-text"}`}>
-                                <p className="text-xs sm:text-sm break-words [overflow-wrap:anywhere] leading-relaxed whitespace-pre-wrap">
-                                  {message.content}
-                                </p>
+                              <div className="flex flex-col max-w-[72%] sm:max-w-[60%]">
+                                <div className={`rounded-3xl px-3 sm:px-4 py-2 sm:py-2.5 shadow-sm ${isOwn ? "bg-primary text-white" : "bg-green-100 text-text"}`}>
+                                  <p className="text-xs sm:text-sm break-words [overflow-wrap:anywhere] leading-relaxed whitespace-pre-wrap">
+                                    {message.content}
+                                  </p>
+                                </div>
+                                <div className="self-end mt-1">
+                                  {isOwn ? (
+                                    hasReaction && (
+                                      <span className="text-sm leading-none select-none">
+                                        👍
+                                      </span>
+                                    )
+                                  ) : (
+                                    hasReaction ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteReaction(message.messageSeq)}
+                                        className="text-sm leading-none px-1.5 py-0.5 rounded-full bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 transition-colors shadow-sm"
+                                        title="リアクションを削除"
+                                      >
+                                        👍
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAddReaction(message.messageSeq)}
+                                        className="flex items-center justify-center w-5 h-5 rounded-full bg-white border border-gray-300 hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600 shadow-sm leading-[0]"
+                                        title="リアクションを追加"
+                                      >
+                                        <Plus className="h-3 w-3 shrink-0 block" />
+                                      </button>
+                                    )
+                                  )}
+                                </div>
                               </div>
                             </div>
-                            <div className={`flex items-center mt-1 text-xs text-gray-500 gap-1 ${isOwn ? "justify-end pr-9 sm:pr-10" : "justify-start pl-9 sm:pl-10"}`}>
+                            <div className={`flex items-center mt-0.5 text-xs text-gray-500 gap-1 ${isOwn ? "justify-end pr-9 sm:pr-10" : "justify-start pl-9 sm:pl-10"}`}>
                               <span>{message.senderName}</span>
                               <span>
                                 {new Date(message.createdAt).toLocaleTimeString("ja-JP", {
