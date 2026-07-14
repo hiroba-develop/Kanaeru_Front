@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Save, User, Building, Lock, UserX } from "lucide-react";
+import { Save, User, Building, Lock, UserX, Link2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { Service } from "../api/services/Service";
 import { StripeService } from "../api/services/StripeService";
+import { SlackService } from "../api/services/SlackService";
 import { withErrorHandling } from "../utils/apiErrorHandler";
 import CryptoJS from "crypto-js";
 import PlanselectModal, { type PlanId } from "../components/PlanselectModal";
@@ -51,6 +52,11 @@ const Settings: React.FC = () => {
   const [cancelLoading, setCancelLoading] = useState(false);
   const [showWithdrawalModal, setShowWithdrawalModal] = useState(false);
   const [showWithdrawalConfirmModal, setShowWithdrawalConfirmModal] = useState(false);
+
+  // Slack 連携
+  const [slackUserId, setSlackUserId]         = useState("");
+  const [slackUserIdSaved, setSlackUserIdSaved] = useState("");
+  const [slackSaveStatus, setSlackSaveStatus]  = useState<"idle" | "saving" | "saved" | "error" | "duplicate">("idle");
 
   const companyTypes: CompanySize[] = [
     "個人事業主",
@@ -254,6 +260,19 @@ const Settings: React.FC = () => {
         };
 
         setSetupData(convertedSetupData);
+
+        // Slack ユーザーID 取得（バックエンド未実装時はスキップ）
+        if (user.role === "0" || user.role === "3" || user.role === "4") {
+          try {
+            const slackRes = await SlackService.getSlackUserMapping(user.id);
+            if (slackRes.responseStatus === 1 && slackRes.slackUserId) {
+              setSlackUserId(slackRes.slackUserId);
+              setSlackUserIdSaved(slackRes.slackUserId);
+            }
+          } catch {
+            // バックエンド実装前のためエラーは無視
+          }
+        }
       } catch (err) {
         console.error("設定データの読み込みエラー:", err);
         setError("設定データの読み込み中にエラーが発生しました");
@@ -470,6 +489,31 @@ const Settings: React.FC = () => {
       alert(errorMessage);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveSlackUserId = async () => {
+    if (!user?.id || !slackUserId.trim()) return;
+    setSlackSaveStatus("saving");
+    try {
+      const res = await SlackService.updateSlackUserMapping({
+        userId: user.id,
+        slackUserId: slackUserId.trim(),
+      });
+      if (res.responseStatus === 1) {
+        setSlackUserIdSaved(slackUserId.trim());
+        setSlackSaveStatus("saved");
+        setTimeout(() => setSlackSaveStatus("idle"), 3000);
+      } else {
+        const msg = (res as any).message ?? "";
+        const isDuplicate = /duplicate|already|conflict|重複|使用済|登録済/i.test(msg);
+        setSlackSaveStatus(isDuplicate ? "duplicate" : "error");
+        setTimeout(() => setSlackSaveStatus("idle"), 4000);
+      }
+    } catch (err: any) {
+      const status = err?.status ?? err?.response?.status;
+      setSlackSaveStatus(status === 409 ? "duplicate" : "error");
+      setTimeout(() => setSlackSaveStatus("idle"), 4000);
     }
   };
 
@@ -739,6 +783,106 @@ const Settings: React.FC = () => {
               </div>
             </form>
           </div>
+        {/* Slack 連携 */}
+        {(user?.role === "0" || user?.role === "3" || user?.role === "4") && (
+          <div className="card">
+            <div className="flex items-center space-x-2 mb-4">
+              <Link2 className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+              <h3 className="text-base sm:text-lg font-semibold text-text">Slack 連携</h3>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-text/60">
+                Slack で目標を投稿すると自動で取込まれます。あなたの Slack メンバー ID を登録してください。
+              </p>
+
+              <div>
+                <label className="block text-sm text-text/70 mb-1">
+                  Slack メンバー ID
+                  <span className="text-xs text-gray-400 ml-2">（例: U012AB3CD）</span>
+                </label>
+                <div className="flex gap-3 items-start">
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={slackUserId}
+                      onChange={(e) => {
+                        setSlackUserId(e.target.value);
+                        if (slackSaveStatus !== "idle") setSlackSaveStatus("idle");
+                      }}
+                      className="input-field w-full font-mono"
+                      placeholder="U012AB3CD"
+                      maxLength={20}
+                      spellCheck={false}
+                    />
+                    <p className="text-xs text-text/50 mt-1">
+                      Slack アプリ → プロフィール → ⋮（その他） →「メンバー ID をコピー」
+                    </p>
+                    {(slackSaveStatus === "error" || slackSaveStatus === "duplicate") && (
+                      <p className="text-xs text-red-500 mt-1">
+                        {slackSaveStatus === "duplicate"
+                          ? "このSlackメンバーIDはすでに別のアカウントで使用されています。"
+                          : "保存に失敗しました。しばらくしてから再度お試しください。"}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveSlackUserId}
+                    disabled={
+                      slackSaveStatus === "saving" ||
+                      slackUserId.trim() === slackUserIdSaved ||
+                      !slackUserId.trim()
+                    }
+                    className="flex-shrink-0 flex items-center justify-center gap-1.5 text-sm px-4 py-2 rounded-full font-semibold transition-all disabled:cursor-not-allowed"
+                    style={{
+                      background:
+                        slackSaveStatus === "saved"
+                          ? "#13AE67"
+                          : slackSaveStatus === "error" || slackSaveStatus === "duplicate"
+                          ? "#EF4444"
+                          : slackUserId.trim() && slackUserId.trim() !== slackUserIdSaved
+                          ? "var(--color-primary, #13AE67)"
+                          : "#E5E7EB",
+                      color:
+                        slackSaveStatus === "saved" || slackSaveStatus === "error" || slackSaveStatus === "duplicate" || (slackUserId.trim() && slackUserId.trim() !== slackUserIdSaved)
+                          ? "#fff"
+                          : "#9CA3AF",
+                    }}
+                  >
+                    {slackSaveStatus === "saving" && (
+                      <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40" strokeDashoffset="15" />
+                      </svg>
+                    )}
+                    {slackSaveStatus === "saved" && (
+                      <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                    {slackSaveStatus === "saving"
+                      ? "保存中..."
+                      : slackSaveStatus === "saved"
+                      ? "保存済み"
+                      : "保存する"}
+                  </button>
+                </div>
+              </div>
+
+              {slackUserIdSaved && (
+                <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "#f0faf6", border: "1px solid #bbf7d0" }}>
+                  <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6L5 9L10 3" stroke="#13AE67" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <p className="text-xs font-medium" style={{ color: "#065f46" }}>
+                    連携中: <span className="font-mono">{slackUserIdSaved}</span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
 {/* プランセクション */}
 {(user?.role === "0" || user?.role === "3" || user?.role === "4") && (
           <div className="card">

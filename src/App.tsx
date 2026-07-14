@@ -27,6 +27,7 @@ import UserManagement from "./pages/UserManagement";
 import MandalaChart from "./pages/MandalaChart";
 import SwipeChoiceComponent from "./pages/SwipeChoiceComponent";
 import SimulationScreen from "./pages/SimulationScreen";
+import DailyGoalPage from "./pages/DailyGoalpage";
 import { useEffect, useState } from "react";
 import { Service } from "./api/services/Service";
 import { StripeService } from "./api/services/StripeService";
@@ -336,6 +337,16 @@ const AppContent: React.FC = () => {
             <ProtectedRoute>
               <Layout>
                 <Settings />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dailyGoal"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <DailyGoalPage />
               </Layout>
             </ProtectedRoute>
           }

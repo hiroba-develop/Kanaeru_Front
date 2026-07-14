@@ -7,6 +7,7 @@ import {
   Briefcase,
   Home,
   MessageCircle,
+  CheckSquare,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { Service } from "../api/services/Service";
@@ -326,6 +327,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       name: "kanaeruマンダラ",
       href: "/mandalaChart",
       icon: MandalaIcon,
+      disabled: false,
+      roleRequired: ["0", "1", "2", "3", "4"],
+    },
+    // Layout.tsx の clientNavigation 配列に追加
+    {
+      name: "日々の目標",
+      href: "/dailyGoal",
+      icon: CheckSquare,
       disabled: false,
       roleRequired: ["0", "1", "2", "3", "4"],
     },
@@ -694,7 +703,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </aside>
 
         {/* メインコンテンツエリア */}
-        <div className="flex-1 lg:ml-52 xl:ml-56">
+        <div className="flex-1 lg:ml-52 xl:ml-56" style={{ minWidth: 0, overflowX: "hidden" }}>
           <header 
             className="px-3 sm:px-4 lg:px-6 h-14 sm:h-16 lg:h-20 flex items-center lg:pl-6"
             style={{

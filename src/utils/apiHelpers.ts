@@ -16,11 +16,8 @@ export const fetchUserWithErrorHandling = async (userId: string) => {
 /**
  * マンダラチャート一覧を取得（エラーハンドリング付き）
  */
-export const fetchMandalaChartsWithErrorHandling = async (
-  userId: string,
-  chartId?: string
-) => {
-  return withErrorHandling(() => Service.getApiMandalaCharts(userId, chartId));
+export const fetchMandalaChartsWithErrorHandling = async (userId: string) => {
+  return withErrorHandling(() => Service.getApiMandalaCharts(userId));
 };
 
 /**

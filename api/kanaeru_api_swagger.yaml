@@ -29,6 +29,10 @@ tags:
     description: お問い合わせ関連API
   - name: Stripe決済
     description: Stripe決済関連API
+  - name: DailyGoal
+    description: 日々の目標関連API
+  - name: Slack連携
+    description: Slack連携関連API（SLACK_USER_MAPPINGS テーブル）
 
 paths:
   # =====================
@@ -2601,6 +2605,246 @@ paths:
                   message:
                     type: string                                     
 
+  # =====================
+  # 日々の目標関連API
+  # =====================
+  /api/daily-goals:
+    get:
+      tags:
+        - DailyGoal
+      summary: 週データ取得
+      description: |
+        指定期間のユーザーの日々の目標一覧を日付ごとに取得
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      operationId: apiDailyGoalsGet
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiDailyGoalsGet200Response'
+
+  /api/daily-goals/create:
+    post:
+      tags:
+        - DailyGoal
+      summary: 目標新規作成
+      description: |
+        日々の目標を新規作成
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      operationId: apiDailyGoalsCreatePost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiDailyGoalsCreatePostRequest'
+      responses:
+        '200':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiDailyGoalsCreatePost200Response'
+
+  /api/daily-goals/{daily_goal_id}/update:
+    put:
+      tags:
+        - DailyGoal
+      summary: 目標更新
+      description: |
+        日々の目標を更新
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      operationId: apiDailyGoalsDailyGoalIdUpdatePut
+      parameters:
+        - name: daily_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiDailyGoalsUpdatePutRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/daily-goals/{daily_goal_id}/delete:
+    delete:
+      tags:
+        - DailyGoal
+      summary: 目標削除（論理削除）
+      description: |
+        日々の目標を論理削除（DEL_FLG=1）
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      operationId: apiDailyGoalsDailyGoalIdDeleteDelete
+      parameters:
+        - name: daily_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/daily-goals/{daily_goal_id}/complete:
+    put:
+      tags:
+        - DailyGoal
+      summary: 完了/未完了切替
+      description: |
+        日々の目標の完了状態を切り替え、実績時間も更新
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      operationId: apiDailyGoalsDailyGoalIdCompletePut
+      parameters:
+        - name: daily_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiDailyGoalsCompleteRequest'
+      responses:
+        '200':
+          description: 切替成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  /api/daily-goals/{daily_goal_id}/reorder:
+    post:
+      tags:
+        - DailyGoal
+      summary: 並び替え
+      description: |
+        日々の目標の表示順を変更
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      operationId: apiDailyGoalsDailyGoalIdReorderPost
+      parameters:
+        - name: daily_goal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiDailyGoalsReorderRequest'
+      responses:
+        '200':
+          description: 変更成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
+  # =====================
+  # Slack連携API
+  # =====================
+  /api/slack/user-mapping:
+    get:
+      tags:
+        - Slack連携
+      operationId: getSlackUserMapping
+      summary: Slack ユーザーID取得
+      description: |
+        ユーザーの Slack User ID（Member ID）を取得
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+                  slackUserId:
+                    type: string
+                    description: "Slack の Member ID（例: U012AB3CD）"
+
+    put:
+      tags:
+        - Slack連携
+      operationId: updateSlackUserMapping
+      summary: Slack ユーザーID登録・更新
+      description: |
+        ユーザーの Slack User ID を SLACK_USER_MAPPINGS テーブルに upsert
+        responseStatusは成功時に1を返却、失敗時は0を返却
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SlackUserMappingRequest'
+      responses:
+        '200':
+          description: 登録・更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responseStatus:
+                    type: integer
+
 components:
   schemas:
     UserSchema:
@@ -2995,4 +3239,152 @@ components:
           type: array
           description: 管理者用（未読のある送信者IDリスト）
           items:
-            type: string         
+            type: string
+
+    # =====================
+    # 日々の目標スキーマ
+    # =====================
+    DailyGoalSchema:
+      type: object
+      properties:
+        daily_goal_id:
+          type: string
+        user_id:
+          type: string
+        goal_date:
+          type: string
+          format: date
+        title:
+          type: string
+        is_completed:
+          type: string
+          description: "0:未完了 1:完了"
+        completed_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+          description: "1:手動 2:Slack"
+        memo:
+          type: string
+        due_date:
+          type: string
+          format: date
+        category_goal_id:
+          type: string
+          description: FK → LARGE_GOALS
+        planned_min:
+          type: integer
+          description: 予定時間（分）
+        actual_min:
+          type: integer
+          description: 実績時間（分）
+        sort_order:
+          type: integer
+        carried_from:
+          type: string
+          format: date
+          description: 引継ぎ元日付
+
+    ApiDailyGoalsGet200ResponseDayInner:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        goals:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyGoalSchema'
+
+    ApiDailyGoalsGet200Response:
+      type: object
+      properties:
+        responseStatus:
+          type: integer
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiDailyGoalsGet200ResponseDayInner'
+
+    ApiDailyGoalsCreatePostRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+        goal_date:
+          type: string
+          format: date
+        title:
+          type: string
+        source:
+          type: string
+          description: "1:手動 2:Slack（省略時は1）"
+        memo:
+          type: string
+        due_date:
+          type: string
+          format: date
+        category_goal_id:
+          type: string
+        planned_min:
+          type: integer
+        sort_order:
+          type: integer
+
+    ApiDailyGoalsCreatePost200Response:
+      type: object
+      properties:
+        responseStatus:
+          type: integer
+        daily_goal_id:
+          type: string
+
+    ApiDailyGoalsUpdatePutRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        goal_date:
+          type: string
+          format: date
+        memo:
+          type: string
+        due_date:
+          type: string
+          format: date
+        category_goal_id:
+          type: string
+        planned_min:
+          type: integer
+        sort_order:
+          type: integer
+
+    ApiDailyGoalsCompleteRequest:
+      type: object
+      properties:
+        is_completed:
+          type: string
+          description: "0:未完了 1:完了"
+        actual_min:
+          type: integer
+          description: 実績時間（分）、未完了時はnull
+
+    ApiDailyGoalsReorderRequest:
+      type: object
+      properties:
+        sort_order:
+          type: integer
+
+    SlackUserMappingRequest:
+      type: object
+      required:
+        - userId
+        - slackUserId
+      properties:
+        userId:
+          type: string
+          description: Kanaeru のユーザーID
+        slackUserId:
+          type: string
+          description: "Slack の Member ID（例: U012AB3CD）"
