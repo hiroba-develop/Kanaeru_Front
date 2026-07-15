@@ -2845,6 +2845,91 @@ paths:
                   responseStatus:
                     type: integer
 
+  /api/slack/oauth/authorize:
+    get:
+      tags:
+        - Slack連携
+      operationId: apiSlackOauthAuthorizeGet
+      summary: Slack OAuth 認可開始
+      description: |
+        Slack公式の認可URLを発行してJSONで返す（302リダイレクトはしない）。
+        ブラウザの通常ページ遷移はAuthorizationヘッダーを送信できないため、
+        フロントエンドはこのAPIをAuthorizationヘッダー付きのfetch/axiosで呼び出し、
+        レスポンスのauthorizeUrlへ window.location.href で遷移させること。
+        state に userId・returnUrl を含む署名付きトークンを発行し、コールバック時に検証する。
+        JWT認証必須。
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: returnUrl
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 連携完了後にリダイレクトするkanaeru側のURL（設定画面）
+      responses:
+        '200':
+          description: 認可URL発行成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlackOauthAuthorizeResponse'
+
+  /api/slack/oauth/callback:
+    get:
+      tags:
+        - Slack連携
+      operationId: apiSlackOauthCallbackGet
+      summary: Slack OAuth コールバック
+      description: |
+        Slackからのリダイレクトを受け、認可コードをBot Tokenに交換して
+        SLACK_WORKSPACES / SLACK_USER_MAPPINGS へ保存する。
+        認証不要（SecurityConfigでpermitAll）。
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: returnUrl へリダイレクト（成否をクエリパラメータで通知）
+
+  /api/slack/oauth/status:
+    get:
+      tags:
+        - Slack連携
+      operationId: getSlackOauthStatus
+      summary: Slack連携状態取得
+      description: |
+        ログインユーザーが所属するSlackワークスペースの連携状況を取得（設定画面表示用）
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlackOauthStatusResponse'
+
 components:
   schemas:
     UserSchema:
@@ -3388,3 +3473,26 @@ components:
         slackUserId:
           type: string
           description: "Slack の Member ID（例: U012AB3CD）"
+
+    SlackOauthAuthorizeResponse:
+      type: object
+      properties:
+        authorizeUrl:
+          type: string
+          description: フロントエンドがwindow.location.hrefで遷移させるSlack認可URL
+
+    SlackOauthStatusResponse:
+      type: object
+      properties:
+        connected:
+          type: boolean
+          description: Slackワークスペースと連携済みかどうか
+        teamName:
+          type: string
+          description: 連携先ワークスペース表示名
+        slackUserId:
+          type: string
+          description: "Slack の Member ID（例: U012AB3CD）"
+        connectedAt:
+          type: string
+          format: date-time

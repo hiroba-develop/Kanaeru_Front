@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { Save, User, Building, Lock, UserX, Link2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Save, User, Building, Lock, UserX, Link2, Copy } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { Service } from "../api/services/Service";
 import { StripeService } from "../api/services/StripeService";
 import { SlackService } from "../api/services/SlackService";
+import type { SlackOauthStatusResponse } from "../api/models/SlackOauthStatusResponse";
 import { withErrorHandling } from "../utils/apiErrorHandler";
 import CryptoJS from "crypto-js";
 import PlanselectModal, { type PlanId } from "../components/PlanselectModal";
@@ -54,9 +56,13 @@ const Settings: React.FC = () => {
   const [showWithdrawalConfirmModal, setShowWithdrawalConfirmModal] = useState(false);
 
   // Slack 連携
-  const [slackUserId, setSlackUserId]         = useState("");
-  const [slackUserIdSaved, setSlackUserIdSaved] = useState("");
-  const [slackSaveStatus, setSlackSaveStatus]  = useState<"idle" | "saving" | "saved" | "error" | "duplicate">("idle");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [slackOauthStatus, setSlackOauthStatus] = useState<SlackOauthStatusResponse | null>(null);
+  const [slackConnecting, setSlackConnecting] = useState(false);
+  const [slackLinkResult, setSlackLinkResult] = useState<"success" | "error" | "cancelled" | null>(null);
+  const [slackAuthorizeUrl, setSlackAuthorizeUrl] = useState<string | null>(null);
+  const [slackUrlCopied, setSlackUrlCopied] = useState(false);
+  const [slackLinkErrorReason, setSlackLinkErrorReason] = useState<string | null>(null);
 
   const companyTypes: CompanySize[] = [
     "個人事業主",
@@ -261,16 +267,13 @@ const Settings: React.FC = () => {
 
         setSetupData(convertedSetupData);
 
-        // Slack ユーザーID 取得（バックエンド未実装時はスキップ）
+        // Slack連携状態取得
         if (user.role === "0" || user.role === "3" || user.role === "4") {
           try {
-            const slackRes = await SlackService.getSlackUserMapping(user.id);
-            if (slackRes.responseStatus === 1 && slackRes.slackUserId) {
-              setSlackUserId(slackRes.slackUserId);
-              setSlackUserIdSaved(slackRes.slackUserId);
-            }
-          } catch {
-            // バックエンド実装前のためエラーは無視
+            const status = await SlackService.getSlackOauthStatus(user.id);
+            setSlackOauthStatus(status);
+          } catch (err) {
+            console.error("Slack連携状態取得エラー:", err);
           }
         }
       } catch (err) {
@@ -283,6 +286,65 @@ const Settings: React.FC = () => {
 
     loadSettingData();
   }, [user?.id]);
+
+  // Slack OAuthコールバックからのリダイレクト結果を反映
+  useEffect(() => {
+    const slackLinked = searchParams.get("slackLinked");
+    if (!slackLinked) return;
+
+    if (slackLinked === "success") {
+      setSlackLinkResult("success");
+      if (user?.id) {
+        SlackService.getSlackOauthStatus(user.id)
+          .then(setSlackOauthStatus)
+          .catch((err) => console.error("Slack連携状態取得エラー:", err));
+      }
+    } else {
+      const reason = searchParams.get("reason");
+      if (reason === "access_denied") {
+        setSlackLinkResult("cancelled");
+      } else {
+        setSlackLinkResult("error");
+        setSlackLinkErrorReason(reason);
+      }
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("slackLinked");
+    next.delete("reason");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, user?.id]);
+
+  const handleConnectSlack = async () => {
+    if (!user?.id) return;
+    setSlackConnecting(true);
+    setSlackAuthorizeUrl(null);
+    setSlackUrlCopied(false);
+    try {
+      const res = await SlackService.apiSlackOauthAuthorizeGet(
+        user.id,
+        `${window.location.origin}/settings`,
+      );
+      if (res.authorizeUrl) {
+        setSlackAuthorizeUrl(res.authorizeUrl);
+      }
+    } catch (err) {
+      console.error("Slack認可URL発行エラー:", err);
+    } finally {
+      setSlackConnecting(false);
+    }
+  };
+
+  const handleCopySlackUrl = async () => {
+    if (!slackAuthorizeUrl) return;
+    try {
+      await navigator.clipboard.writeText(slackAuthorizeUrl);
+      setSlackUrlCopied(true);
+      setTimeout(() => setSlackUrlCopied(false), 2000);
+    } catch (err) {
+      console.error("リンクのコピーに失敗しました:", err);
+    }
+  };
 
   const handleSaveSettings = async () => {
     if (!setupData || !user?.id) {
@@ -492,31 +554,6 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleSaveSlackUserId = async () => {
-    if (!user?.id || !slackUserId.trim()) return;
-    setSlackSaveStatus("saving");
-    try {
-      const res = await SlackService.updateSlackUserMapping({
-        userId: user.id,
-        slackUserId: slackUserId.trim(),
-      });
-      if (res.responseStatus === 1) {
-        setSlackUserIdSaved(slackUserId.trim());
-        setSlackSaveStatus("saved");
-        setTimeout(() => setSlackSaveStatus("idle"), 3000);
-      } else {
-        const msg = (res as any).message ?? "";
-        const isDuplicate = /duplicate|already|conflict|重複|使用済|登録済/i.test(msg);
-        setSlackSaveStatus(isDuplicate ? "duplicate" : "error");
-        setTimeout(() => setSlackSaveStatus("idle"), 4000);
-      }
-    } catch (err: any) {
-      const status = err?.status ?? err?.response?.status;
-      setSlackSaveStatus(status === 409 ? "duplicate" : "error");
-      setTimeout(() => setSlackSaveStatus("idle"), 4000);
-    }
-  };
-
   const handlePlanComplete = async (plan: PlanId) => {
     if (plan === "paid") {
       handlePlanUpgrade();
@@ -548,7 +585,7 @@ const Settings: React.FC = () => {
       setCancelLoading(true);
       await StripeService.postApiStripeSubscriptionCancel(user.id);
       setShowCancelModal(false);
-      
+
       // サブスクリプション情報を再取得
       const response = await Service.getApiSettingUser(user.id);
       setSubscriptionInfo(response.subscriptionSchema ?? null);
@@ -793,92 +830,110 @@ const Settings: React.FC = () => {
 
             <div className="space-y-4">
               <p className="text-sm text-text/60">
-                Slack で目標を投稿すると自動で取込まれます。あなたの Slack メンバー ID を登録してください。
+                会社のSlackワークスペースと連携すると、Slack上で <span className="font-mono text-text/80">@kanaeru</span> にメンションして目標を投稿するだけで、日々の目標に自動で登録されます。
+              </p>
+              <p className="text-xs text-text/50">
+                例：<span className="font-mono">@kanaeru ・資料を仕上げる ・MTG準備</span>
               </p>
 
-              <div>
-                <label className="block text-sm text-text/70 mb-1">
-                  Slack メンバー ID
-                  <span className="text-xs text-gray-400 ml-2">（例: U012AB3CD）</span>
-                </label>
-                <div className="flex gap-3 items-start">
-                  <div className="flex-1">
-                    <input
-                      type="text"
-                      value={slackUserId}
-                      onChange={(e) => {
-                        setSlackUserId(e.target.value);
-                        if (slackSaveStatus !== "idle") setSlackSaveStatus("idle");
-                      }}
-                      className="input-field w-full font-mono"
-                      placeholder="U012AB3CD"
-                      maxLength={20}
-                      spellCheck={false}
-                    />
-                    <p className="text-xs text-text/50 mt-1">
-                      Slack アプリ → プロフィール → ⋮（その他） →「メンバー ID をコピー」
-                    </p>
-                    {(slackSaveStatus === "error" || slackSaveStatus === "duplicate") && (
-                      <p className="text-xs text-red-500 mt-1">
-                        {slackSaveStatus === "duplicate"
-                          ? "このSlackメンバーIDはすでに別のアカウントで使用されています。"
-                          : "保存に失敗しました。しばらくしてから再度お試しください。"}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSaveSlackUserId}
-                    disabled={
-                      slackSaveStatus === "saving" ||
-                      slackUserId.trim() === slackUserIdSaved ||
-                      !slackUserId.trim()
-                    }
-                    className="flex-shrink-0 flex items-center justify-center gap-1.5 text-sm px-4 py-2 rounded-full font-semibold transition-all disabled:cursor-not-allowed"
-                    style={{
-                      background:
-                        slackSaveStatus === "saved"
-                          ? "#13AE67"
-                          : slackSaveStatus === "error" || slackSaveStatus === "duplicate"
-                          ? "#EF4444"
-                          : slackUserId.trim() && slackUserId.trim() !== slackUserIdSaved
-                          ? "var(--color-primary, #13AE67)"
-                          : "#E5E7EB",
-                      color:
-                        slackSaveStatus === "saved" || slackSaveStatus === "error" || slackSaveStatus === "duplicate" || (slackUserId.trim() && slackUserId.trim() !== slackUserIdSaved)
-                          ? "#fff"
-                          : "#9CA3AF",
-                    }}
-                  >
-                    {slackSaveStatus === "saving" && (
-                      <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40" strokeDashoffset="15" />
-                      </svg>
-                    )}
-                    {slackSaveStatus === "saved" && (
-                      <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
-                        <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    )}
-                    {slackSaveStatus === "saving"
-                      ? "保存中..."
-                      : slackSaveStatus === "saved"
-                      ? "保存済み"
-                      : "保存する"}
-                  </button>
-                </div>
-              </div>
-
-              {slackUserIdSaved && (
+              {slackLinkResult === "success" && (
                 <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "#f0faf6", border: "1px solid #bbf7d0" }}>
                   <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
                     <path d="M2 6L5 9L10 3" stroke="#13AE67" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                   <p className="text-xs font-medium" style={{ color: "#065f46" }}>
-                    連携中: <span className="font-mono">{slackUserIdSaved}</span>
+                    Slack連携が完了しました
                   </p>
                 </div>
               )}
+              {slackLinkResult === "cancelled" && (
+                <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+                  <p className="text-xs font-medium text-text/60">
+                    Slack連携をキャンセルしました
+                  </p>
+                </div>
+              )}
+              {slackLinkResult === "error" && (
+                <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
+                  <p className="text-xs font-medium" style={{ color: "#991b1b" }}>
+                    Slack連携に失敗しました
+                    {slackLinkErrorReason ? `（${slackLinkErrorReason}）` : ""}
+                    。もう一度お試しください。
+                  </p>
+                </div>
+              )}
+
+              {slackOauthStatus?.connected && (
+                <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "#f0faf6", border: "1px solid #bbf7d0" }}>
+                  <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6L5 9L10 3" stroke="#13AE67" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <p className="text-xs font-medium" style={{ color: "#065f46" }}>
+                    連携中: <span className="font-mono">{slackOauthStatus.teamName}</span>
+                    {slackOauthStatus.slackUserId && (
+                      <span className="text-text/50 font-normal">
+                        {" "}(Slack ID: <span className="font-mono">{slackOauthStatus.slackUserId}</span>)
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleConnectSlack}
+                disabled={slackConnecting}
+                className={`text-sm px-4 py-2 rounded-full font-semibold disabled:cursor-not-allowed ${
+                  slackOauthStatus?.connected ? "btn-secondary" : "btn-primary"
+                }`}
+              >
+                {slackConnecting
+                  ? "リンクを発行中..."
+                  : slackOauthStatus?.connected
+                  ? "別のワークスペースに接続し直す"
+                  : "Slackと連携する"}
+              </button>
+
+              {slackAuthorizeUrl && (
+                <div className="space-y-2 p-3 rounded-xl" style={{ background: "#eff6ff", border: "1px solid #bfdbfe" }}>
+                  <p className="text-xs font-medium" style={{ color: "#1e40af" }}>
+                    連携用リンクを発行しました（24時間有効）。ご自身で開くか、コピーして管理者に送ってください。
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href={slackAuthorizeUrl}
+                      className="btn-primary text-sm px-4 py-2 rounded-full font-semibold text-center"
+                    >
+                      このリンクを開く
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleCopySlackUrl}
+                      className="btn-secondary flex items-center gap-1.5 text-sm px-4 py-2 rounded-full font-semibold"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      {slackUrlCopied ? "コピーしました" : "リンクをコピー"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <details className="rounded-xl" style={{ background: "#fefce8", border: "1px solid #fde68a" }}>
+                <summary className="cursor-pointer select-none text-sm font-medium px-3 py-2" style={{ color: "#78620a" }}>
+                  「インストールする権限がありません」と表示された場合
+                </summary>
+                <div className="space-y-2 px-3 pb-3 text-sm" style={{ color: "#78620a" }}>
+                  <p>
+                    Slackワークスペースの設定によっては、アプリのインストールに管理者の許可が必要な場合があります。以下の手順でお試しください。
+                  </p>
+                  <p>
+                    ①「Slackと連携する」を押してリンクを発行し、コピーしてワークスペースの管理者に送ってください（管理者はkanaeruアカウントを持っている必要はありません。リンクは24時間有効です）。
+                  </p>
+                  <p>
+                    ②管理者が許可した後、あらためてご自身で「Slackと連携する」を押し直してください。これで、あなた自身のSlackアカウントが正しく連携されます。
+                  </p>
+                </div>
+              </details>
             </div>
           </div>
         )}

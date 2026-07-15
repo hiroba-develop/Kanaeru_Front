@@ -33,6 +33,8 @@ export type { OperatingProfitSchema } from './models/OperatingProfitSchema';
 export type { ReservationSchema } from './models/ReservationSchema';
 export type { SaleSchema } from './models/SaleSchema';
 export type { SettingSchema } from './models/SettingSchema';
+export type { SlackOauthAuthorizeResponse } from './models/SlackOauthAuthorizeResponse';
+export type { SlackOauthStatusResponse } from './models/SlackOauthStatusResponse';
 export type { SlackUserMappingRequest } from './models/SlackUserMappingRequest';
 export type { SubscriptionSchema } from './models/SubscriptionSchema';
 export type { UserListSchema } from './models/UserListSchema';
