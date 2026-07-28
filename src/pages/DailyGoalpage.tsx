@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { usePermission } from "../hooks/usePermission";
 import { Service } from "../api/services/Service";
 import { DailyGoalService } from "../api/services/DailyGoalService";
+import { SlackService } from "../api/services/SlackService";
 import type { LargeGoalSchema } from "../api/models/LargeGoalSchema";
 import type { DailyGoalSchema } from "../api/models/DailyGoalSchema";
+import type { SlackOauthStatusResponse } from "../api/models/SlackOauthStatusResponse";
 
 // ── 型定義 ──────────────────────────────────────────────
 type Source = "manual" | "slack";
@@ -18,18 +21,19 @@ interface Category {
 
 // マンダラ大目標をカテゴリとして使う。
 // 色はインデックス順に自動割り当て。
-// ブランドカラー（進捗の緑・全達成のピンク）と紛らわしくならないよう、
-// その色相帯を避けつつ、トーンを揃えた落ち着いた8色にしている。
 const CATEGORY_PALETTE: Array<{ color: string; bg: string }> = [
-  { color: "#3E7BC4", bg: "#E8F1FC" }, // ブルー
-  { color: "#8B6FD6", bg: "#F0ECFD" }, // バイオレット
-  { color: "#B06BA0", bg: "#FAEDF6" }, // モーブ
-  { color: "#D9714F", bg: "#FCEAE3" }, // テラコッタ
-  { color: "#D6A23A", bg: "#FBF2DE" }, // アンバー
-  { color: "#2A93A0", bg: "#E2F3F4" }, // ティール
-  { color: "#6B7280", bg: "#EEF0F2" }, // スレートグレー
-  { color: "#8B6A4A", bg: "#F2ECE4" }, // シエナ
+  { color: "#8A77B5", bg: "#EFECF5" }, // 1番目
+  { color: "#2A927C", bg: "#E1F0ED" }, // 2番目
+  { color: "#568FC0", bg: "#E7EFF6" }, // 3番目
+  { color: "#687E91", bg: "#EAEDF0" }, // 4番目
+  { color: "#B8872B", bg: "#F5EEE1" }, // 5番目
+  { color: "#CA718B", bg: "#F8EBEF" }, // 6番目
+  { color: "#839255", bg: "#EEF0E7" }, // 7番目
+  { color: "#D17E3D", bg: "#F9EDE4" }, // 8番目
 ];
+
+// 大目標未設定タスク用の擬似カテゴリID（タグ別一覧モーダルで使用）
+const UNCATEGORIZED = "__uncategorized__";
 
 interface Goal {
   id: string;
@@ -45,16 +49,6 @@ interface Goal {
   sortOrder?: number;   // 表示順序
 }
 
-// 分 → "Xh Ym" 表示
-const fmtDuration = (min: number): string => {
-  if (min <= 0) return "";
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  if (h === 0) return `${m}分`;
-  if (m === 0) return `${h}時間`;
-  return `${h}時間${m}分`;
-};
-
 interface DayData {
   date: Date;
   goals: Goal[];
@@ -64,35 +58,12 @@ interface DayData {
 const today = new Date();
 const toDs = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const DAY_NAMES_SHORT = ["日", "月", "火", "水", "木", "金", "土"];
-
 // 指定月（monthBaseと同じ年月）の実日付配列（1日〜末日）
 const daysInMonthArray = (base: Date): Date[] => {
   const year = base.getFullYear();
   const month = base.getMonth();
   const count = new Date(year, month + 1, 0).getDate();
   return Array.from({ length: count }, (_, i) => new Date(year, month, i + 1));
-};
-
-// カレンダー表示用グリッド（前後月の空マスを含めた6週=42マス、inMonth=当月かどうか）
-const buildMonthGrid = (base: Date): { date: Date; inMonth: boolean }[] => {
-  const year = base.getFullYear();
-  const month = base.getMonth();
-  const first = new Date(year, month, 1);
-  const startWeekday = first.getDay(); // 0=日
-  const cells: { date: Date; inMonth: boolean }[] = [];
-  for (let i = 0; i < startWeekday; i++) {
-    const d = new Date(year, month, 1 - (startWeekday - i));
-    cells.push({ date: d, inMonth: false });
-  }
-  for (const d of daysInMonthArray(base)) cells.push({ date: d, inMonth: true });
-  while (cells.length < 42) {
-    const last = cells[cells.length - 1].date;
-    const next = new Date(last);
-    next.setDate(last.getDate() + 1);
-    cells.push({ date: next, inMonth: false });
-  }
-  return cells;
 };
 
 // タイトルの最大文字数（マンダラ小目標と統一）
@@ -266,9 +237,7 @@ const DailyGoalPage: React.FC = () => {
   const [monthData,  setMonthData]  = useState<DayData[]>(() => daysInMonthArray(today).map(date => ({ date, goals: [] })));
   const [isLoading,  setIsLoading]  = useState(false);
   const [selectedDs, setSelectedDs] = useState<string>(toDs(today));
-  const [showCalendarJump, setShowCalendarJump] = useState(false);
   const [newTitle,      setNewTitle]      = useState("");
-  const [newPlannedMin, setNewPlannedMin] = useState<number>(0);
   const [newFormOpen,   setNewFormOpen]   = useState(false);
   // 選択中・編集中の目標ID
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
@@ -295,6 +264,26 @@ const DailyGoalPage: React.FC = () => {
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
+  const [categoryBreakdownOpen, setCategoryBreakdownOpen] = useState(true);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  // カレンダーピッカーで閲覧中の月（日付を確定するまでは monthBase/monthData に影響させない）
+  const [pickerMonth, setPickerMonth] = useState<Date>(monthBase);
+  const [pickerMonthData, setPickerMonthData] = useState<DayData[] | null>(null);
+  const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number; openUp: boolean } | null>(null);
+  const dayNavRef = React.useRef<HTMLDivElement>(null);
+  const [hoveredCat, setHoveredCat] = useState<string | null>(null);
+
+  // カレンダーピッカー表示中はスクロール/リサイズで閉じる（固定位置がズレるのを防ぐ）
+  React.useEffect(() => {
+    if (!datePickerOpen) return;
+    const close = () => setDatePickerOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [datePickerOpen]);
 
   // ── 月データ API ロード（月移動・初回表示時） ──────────────
   useEffect(() => {
@@ -321,6 +310,33 @@ const DailyGoalPage: React.FC = () => {
       .finally(() => setIsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthBase, displayUser?.id]);
+
+  // ── カレンダーピッカー用データロード（閲覧中の月が monthBase と異なる場合のみ取得） ──
+  useEffect(() => {
+    if (!datePickerOpen) return;
+    if (pickerMonth.getFullYear() === monthBase.getFullYear() && pickerMonth.getMonth() === monthBase.getMonth()) {
+      setPickerMonthData(monthData);
+      return;
+    }
+    const uid = displayUser?.id;
+    if (!uid) return;
+    const days = daysInMonthArray(pickerMonth);
+    const startDate = toDs(days[0]);
+    const endDate   = toDs(days[days.length - 1]);
+    setPickerMonthData(null);
+    DailyGoalService.apiDailyGoalsGet(uid, startDate, endDate)
+      .then(res => {
+        if (res.responseStatus !== 1) return;
+        const dayMap = new Map((res.days ?? []).map(d => [d.date, d.goals]));
+        setPickerMonthData(days.map(date => {
+          const ds = toDs(date);
+          const apiGoals = dayMap.get(ds) ?? [];
+          return { date, goals: (apiGoals as DailyGoalSchema[]).map(mapApiGoal) };
+        }));
+      })
+      .catch(err => console.error("DailyGoal (picker) fetch error:", err));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datePickerOpen, pickerMonth, monthBase, displayUser?.id]);
 
   // ── 30秒ポーリング：Slack 投稿後の自動反映 ─────────────────
   useEffect(() => {
@@ -383,8 +399,22 @@ const DailyGoalPage: React.FC = () => {
       })
       .finally(() => setIsLoadingMandalaCategories(false));
   }, [displayUser?.id]);
-  // チェック完了時の時間入力ポップアップ
-  const [durationPopup, setDurationPopup] = useState<{ goalId: string; input: string } | null>(null);
+
+  // ── Slack連携状態の取得 ──────────────────────────────
+  useEffect(() => {
+    const uid = displayUser?.id;
+    if (!uid) {
+      setSlackOauthStatus(null);
+      return;
+    }
+
+    SlackService.getSlackOauthStatus(uid)
+      .then(setSlackOauthStatus)
+      .catch((err) => {
+        console.error("Slack連携状態取得エラー:", err);
+        setSlackOauthStatus(null);
+      });
+  }, [displayUser?.id]);
   // 削除確認ダイアログ
   const [deleteConfirm, setDeleteConfirm] = useState<{ goalId: string; title: string } | null>(null);
   const [copyModal,     setCopyModal]     = useState<{ goalId: string; targetDate: string } | null>(null);
@@ -396,12 +426,13 @@ const DailyGoalPage: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   // タイトル編集モード（クリックで開く）
   const [isTitleEditing, setIsTitleEditing] = useState(false);
-  // タグ別一覧モーダル
+  // タグ別一覧モーダル（UNCATEGORIZED は大目標未設定タスクを表す特別値）
   const [tagViewCat, setTagViewCat] = useState<string | null>(null);
   // Slack 連携ヘルプモーダル
   const [slackHelpOpen, setSlackHelpOpen] = useState(false);
   const [slackHelpTab,  setSlackHelpTab]  = useState<"bullet" | "emoji">("bullet");
   const [emojiSearch,   setEmojiSearch]   = useState("");
+  const [slackOauthStatus, setSlackOauthStatus] = useState<SlackOauthStatusResponse | null>(null);
 
   // タイトルテキストエリアの高さを内容に合わせて自動調整
   React.useEffect(() => {
@@ -446,33 +477,26 @@ const DailyGoalPage: React.FC = () => {
   const achievePct      = goals.length > 0 ? Math.round((completed / goals.length) * 100) : 0;
   const isSelectedToday = selectedDs === todayDs;
   const selectedGoal = selectedGoalId ? monthData.flatMap((d) => d.goals).find((g) => g.id === selectedGoalId) ?? null : null;
-  const monthGrid = buildMonthGrid(monthBase);
 
   // ── 月次サマリー（振り返り用の集計） ─────────────────────
   const monthCompleted  = monthData.reduce((s, d) => s + d.goals.filter((g) => g.isCompleted).length, 0);
   const monthTotal      = monthData.reduce((s, d) => s + d.goals.length, 0);
   const monthAchievePct = monthTotal > 0 ? Math.round((monthCompleted / monthTotal) * 100) : 0;
-  const monthPlannedMin = monthData.reduce((s, d) => s + d.goals.reduce((ss, g) => ss + (g.plannedMin || 0), 0), 0);
-  const monthActualMin  = monthData.reduce((s, d) => s + d.goals.reduce((ss, g) => ss + (g.actualMin  || 0), 0), 0);
   const daysWithGoals   = monthData.filter((d) => d.goals.length > 0).length;
   const elapsedDaysInMonth = isCurrentMonth ? today.getDate() : monthData.length;
 
   // ── アクション ───────────────────────────────────────────
-  // 月を移動して monthData を再生成する
-  const moveMonth = (diff: number) => {
-    const newBase = new Date(monthBase.getFullYear(), monthBase.getMonth() + diff, 1);
-    setMonthBase(newBase);
-    const isThisMonth = newBase.getFullYear() === today.getFullYear() && newBase.getMonth() === today.getMonth();
-    setSelectedDs(isThisMonth ? todayDs : toDs(newBase));
+  // 選択日を1日単位で前後させる。月をまたぐ場合は monthBase も追従させる
+  const moveDay = (diff: number) => {
+    const [y, m, d] = selectedDs.split("-").map(Number);
+    const newDate = new Date(y, m - 1, d + diff);
+    const newDs = toDs(newDate);
+    const crossesMonth = newDate.getFullYear() !== monthBase.getFullYear() || newDate.getMonth() !== monthBase.getMonth();
+    if (crossesMonth) {
+      setMonthBase(new Date(newDate.getFullYear(), newDate.getMonth(), 1));
+    }
+    setSelectedDs(newDs);
     setSelectedGoalId(null);
-  };
-
-  const jumpToDate = (ds: string) => {
-    const [y, m, d] = ds.split("-").map(Number);
-    setMonthBase(new Date(y, m - 1, 1));
-    setSelectedDs(ds);
-    setSelectedGoalId(null);
-    setShowCalendarJump(false);
   };
 
   const goToToday = () => {
@@ -558,7 +582,6 @@ const DailyGoalPage: React.FC = () => {
       updateGoal(goalId, { title, dueDate: editDraft.dueDate, memo: editDraft.memo, category: editDraft.category, plannedMin: editDraft.plannedMin, actualMin: editDraft.actualMin });
     }
     setIsDirty(false);
-    setDurationPopup(null);
 
     try {
       await DailyGoalService.apiDailyGoalsDailyGoalIdUpdatePut(goalId, {
@@ -596,10 +619,167 @@ const DailyGoalPage: React.FC = () => {
   const cancelEdit = () => {
     setSelectedGoalId(null);
     setIsDirty(false);
-    setDurationPopup(null);
     setSaveError(null);
     setIsTitleEditing(false);
   };
+
+  // タスク行の直下にアコーディオン展開する詳細編集パネル
+  const renderGoalDetail = (selectedGoal: Goal) => (
+    <>
+      {/* 閉じるボタンのみ（完了チェック・タイトルはタスク行と共通のため重複表示しない） */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+        <button
+          onClick={() => cancelEdit()}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", padding: "2px", display: "flex", alignItems: "center", flexShrink: 0 }}
+          title="閉じる"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      {/* マンダラ大目標 */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>マンダラ大目標</label>
+          <div style={{ position: "relative", display: "flex", alignItems: "center", flex: 1 }}>
+            <select
+              value={editDraft.category}
+              onChange={(e) => updateEditDraft((d) => ({ ...d, category: e.target.value }))}
+              disabled={isLoadingMandalaCategories || !canEdit}
+              style={{ width: "100%", fontSize: 12, fontWeight: 600, fontFamily: "inherit", border: "1px solid #e5e7eb", borderRadius: 8, padding: "5px 28px 5px 10px", appearance: "none" as const, outline: "none", cursor: isLoadingMandalaCategories || !canEdit ? "default" : "pointer", background: isLoadingMandalaCategories ? "#f9fafb" : "#fff", color: editDraft.category ? "#374151" : "#9ca3af" }}
+            >
+              <option value="">
+                {isLoadingMandalaCategories ? "読み込み中..." : "大目標を選択（任意）"}
+              </option>
+              {editDraft.category && !mandalaCategories.some((c) => c.id === editDraft.category) && (
+                <option value={editDraft.category}>（登録済みの大目標）</option>
+              )}
+              {mandalaCategories.map((cat) => (
+                <option key={cat.id} value={cat.id}>{cat.label}</option>
+              ))}
+            </select>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ position: "absolute", right: 8, pointerEvents: "none" }}><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+        {!isLoadingMandalaCategories && mandalaCategories.length === 0 && (
+          <p style={{ fontSize: 10, color: "#9ca3af", margin: "4px 0 0 82px" }}>
+            マンダラチャートに大目標が登録されていません
+          </p>
+        )}
+      </div>
+
+      {/* 日付（別日への移動） */}
+      <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+        <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, width: 36 }}>日付</label>
+        <input
+          type="date"
+          value={editDraft.goalDate}
+          disabled={!canEdit}
+          onChange={(e) => updateEditDraft((d) => ({ ...d, goalDate: e.target.value }))}
+          style={{ fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "4px 8px", outline: "none", fontFamily: "inherit", color: "#374151", background: "#fff" }}
+        />
+      </div>
+
+      {/* メモ */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+          <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>メモ</label>
+          <span style={{
+            fontSize: 10, fontWeight: 600,
+            color: editDraft.memo.length >= MEMO_MAX ? "#ef4444" : editDraft.memo.length >= MEMO_MAX - 50 ? "#f59e0b" : "#9ca3af",
+          }}>{editDraft.memo.length}/{MEMO_MAX}</span>
+        </div>
+        <textarea
+          value={editDraft.memo}
+          disabled={!canEdit}
+          maxLength={MEMO_MAX}
+          onChange={(e) => updateEditDraft((d) => ({ ...d, memo: e.target.value }))}
+          placeholder="メモを入力..."
+          rows={3}
+          style={{ width: "100%", fontSize: 12, color: "#374151", border: "1px solid #e5e7eb", borderRadius: 8, padding: "6px 10px", outline: "none", fontFamily: "inherit", resize: "vertical", lineHeight: 1.6, background: canEdit ? "#fff" : "#f9fafb", boxSizing: "border-box" as const }}
+          onFocus={(e) => { e.target.style.borderColor = "#13AE67"; }}
+          onBlur={(e) => { e.target.style.borderColor = "#e5e7eb"; }}
+        />
+      </div>
+
+      {/* 保存エラー */}
+      {saveError && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span style={{ fontSize: 12, color: "#ef4444", lineHeight: 1.5 }}>{saveError}</span>
+        </div>
+      )}
+
+      {/* 削除 / コピー ｜ キャンセル / 保存 */}
+      {isMobile ? (
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
+          {canEdit && (
+            <button
+              onClick={() => setDeleteConfirm({ goalId: selectedGoal.id, title: selectedGoal.title })}
+              style={{ padding: "5px 8px", borderRadius: 20, border: "1px solid #fca5a5", background: "#fff", fontSize: 11, fontWeight: 600, color: "#ef4444", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 2, whiteSpace: "nowrap" as const }}
+              title="削除"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+              </svg>
+              削除
+            </button>
+          )}
+          {canEdit && (
+            <button
+              onClick={() => setCopyModal({ goalId: selectedGoal.id, targetDate: selectedDs })}
+              style={{ padding: "5px 8px", borderRadius: 20, border: "1px solid #d1d5db", background: "#fff", fontSize: 11, fontWeight: 600, color: "#6b7280", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 2, whiteSpace: "nowrap" as const }}
+              title="別日にコピー"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+              </svg>
+              コピー
+            </button>
+          )}
+          <button onClick={cancelEdit} style={{ padding: "5px 10px", borderRadius: 20, border: "1px solid #e5e7eb", background: "#fff", fontSize: 11, fontWeight: 600, color: "#6b7280", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" as const }}>キャンセル</button>
+          <button onClick={() => saveEdit(selectedGoal.id)} disabled={!isDirty || !canEdit} style={{ padding: "5px 10px", borderRadius: 20, border: "none", background: isDirty && canEdit ? "#13AE67" : "#e5e7eb", fontSize: 11, fontWeight: 700, color: isDirty && canEdit ? "#fff" : "#9ca3af", cursor: isDirty && canEdit ? "pointer" : "default", fontFamily: "inherit", whiteSpace: "nowrap" as const, transition: "background 0.2s, color 0.2s" }}>保存する</button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", gap: 6 }}>
+            {canEdit && (
+              <button
+                onClick={() => setDeleteConfirm({ goalId: selectedGoal.id, title: selectedGoal.title })}
+                style={{ padding: "6px 10px", borderRadius: 20, border: "1px solid #fca5a5", background: "#fff", fontSize: 12, fontWeight: 600, color: "#ef4444", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" as const }}
+                title="削除"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                </svg>
+                削除
+              </button>
+            )}
+            {canEdit && (
+              <button
+                onClick={() => setCopyModal({ goalId: selectedGoal.id, targetDate: selectedDs })}
+                style={{ padding: "6px 10px", borderRadius: 20, border: "1px solid #d1d5db", background: "#fff", fontSize: 12, fontWeight: 600, color: "#6b7280", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" as const }}
+                title="別日にコピー"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                </svg>
+                コピー
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={cancelEdit} style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, fontWeight: 600, color: "#6b7280", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" as const }}>キャンセル</button>
+            <button onClick={() => saveEdit(selectedGoal.id)} disabled={!isDirty || !canEdit} style={{ padding: "6px 12px", borderRadius: 20, border: "none", background: isDirty && canEdit ? "#13AE67" : "#e5e7eb", fontSize: 12, fontWeight: 700, color: isDirty && canEdit ? "#fff" : "#9ca3af", cursor: isDirty && canEdit ? "pointer" : "default", fontFamily: "inherit", whiteSpace: "nowrap" as const, transition: "background 0.2s, color 0.2s" }}>保存する</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   const copyGoalToDate = async (goalId: string, targetDate: string) => {
     const uid = displayUser?.id;
@@ -616,6 +796,9 @@ const DailyGoalPage: React.FC = () => {
     ));
     setCopyModal(null);
     setSelectedDs(targetDate);
+    // コピー元の詳細パネルを開いたままにすると、別日に移動したのに古い完了状態・日付が
+    // 表示され続けて紛らわしいため、パネルは閉じてコピー先の一覧を素の状態で見せる
+    setSelectedGoalId(null);
 
     try {
       const res = await DailyGoalService.apiDailyGoalsCreatePost({
@@ -648,12 +831,6 @@ const DailyGoalPage: React.FC = () => {
     const nowCompleted = !g.isCompleted;
     // 楽観的更新
     updateGoal(goalId, { isCompleted: nowCompleted });
-    if (nowCompleted) {
-      setDurationPopup({ goalId, input: "" });
-      startEdit(g);
-    } else {
-      if (durationPopup?.goalId === goalId) setDurationPopup(null);
-    }
     // API 同期（fire-and-forget）
     DailyGoalService.apiDailyGoalsDailyGoalIdCompletePut(goalId, {
       is_completed: nowCompleted ? "1" : "0",
@@ -681,12 +858,11 @@ const DailyGoalPage: React.FC = () => {
     const title     = newTitle.trim();
     const tempId    = `temp_${Date.now()}`;
     const sortOrder = (monthData.find(d => toDs(d.date) === selectedDs)?.goals.length ?? 0) + 1;
-    const tempGoal: Goal = { id: tempId, title, isCompleted: false, source: "manual", memo: "", dueDate: selectedDs, category: "", plannedMin: newPlannedMin, actualMin: 0, sortOrder };
+    const tempGoal: Goal = { id: tempId, title, isCompleted: false, source: "manual", memo: "", dueDate: selectedDs, category: "", plannedMin: 0, actualMin: 0, sortOrder };
 
     // 楽観的更新
     setMonthData(prev => prev.map(d => toDs(d.date) === selectedDs ? { ...d, goals: [...d.goals, tempGoal] } : d));
     setNewTitle("");
-    setNewPlannedMin(0);
     setNewFormOpen(false);
     setSelectedGoalId(tempId);
     setEditDraft({ title: tempGoal.title, goalDate: selectedDs, dueDate: tempGoal.dueDate, memo: tempGoal.memo, category: tempGoal.category, plannedMin: tempGoal.plannedMin, actualMin: 0 });
@@ -745,12 +921,20 @@ const DailyGoalPage: React.FC = () => {
         max-height: min(80vh, calc(100dvh - env(safe-area-inset-top, 44px) - 12px));
         padding-bottom: env(safe-area-inset-bottom, 0px);
       }
+      .dgp-tip { position: relative; }
+      .dgp-tip::after {
+        content: attr(data-tip);
+        position: absolute; top: calc(100% + 6px); right: 0;
+        background: #1f2937; color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap;
+        padding: 5px 9px; border-radius: 6px; pointer-events: none;
+        opacity: 0; visibility: hidden; transition: opacity 0.15s ease 0.1s;
+        z-index: 50;
+      }
+      .dgp-tip:hover::after, .dgp-tip:focus-visible::after { opacity: 1; visibility: visible; }
     `}</style>
     <div
       className="px-4 sm:px-6 lg:px-8 py-4 sm:py-6"
-      style={isMobile
-        ? { display: "flex", flexDirection: "column", gap: 10, paddingBottom: 32, overflowX: "hidden" }
-        : { height: "calc(100vh - 80px)", display: "flex", flexDirection: "column", overflow: "hidden", gap: 12 }}
+      style={{ display: "flex", flexDirection: "column", gap: isMobile ? 8 : 14, paddingBottom: isMobile ? 12 : 32, overflowX: "hidden" }}
     >
       {/* ── ページタイトル ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
@@ -759,21 +943,51 @@ const DailyGoalPage: React.FC = () => {
           {today.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" })}
         </span>
         <div style={{ flex: 1 }} />
+        {slackOauthStatus?.connected ? (
+          <span
+            className={isMobile ? "dgp-tip" : undefined}
+            data-tip={isMobile ? `Slack連携済み（${slackOauthStatus.teamName}）` : undefined}
+            aria-label={`Slack連携済み（${slackOauthStatus.teamName}）`}
+            tabIndex={isMobile ? 0 : undefined}
+            style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: isMobile ? "4px 7px" : "4px 12px", whiteSpace: "nowrap" }}
+          >
+            <svg width="13" height="13" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="#166534" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            {!isMobile && <>Slack連携済み（{slackOauthStatus.teamName}）</>}
+          </span>
+        ) : (
+          <Link
+            to="/settings"
+            className={isMobile ? "dgp-tip" : undefined}
+            data-tip={isMobile ? "Slack未連携（設定画面へ）" : undefined}
+            aria-label="Slack未連携（設定画面へ）"
+            style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "#9ca3af", background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 16, padding: isMobile ? "4px 7px" : "4px 12px", whiteSpace: "nowrap", textDecoration: "none" }}
+          >
+            {isMobile ? "!" : "Slack未連携（設定画面へ）"}
+          </Link>
+        )}
         <button
           onClick={() => { setSlackHelpOpen(true); setSlackHelpTab("bullet"); setEmojiSearch(""); }}
-          style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "#4b9e8e", background: "#f0faf6", border: "1px solid #bbf7d0", borderRadius: 16, padding: "4px 12px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
+          className={isMobile ? "dgp-tip" : undefined}
+          data-tip={isMobile ? "Slack連携ヘルプ" : undefined}
+          aria-label="Slack連携ヘルプ"
+          style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "#4b9e8e", background: "#f0faf6", border: "1px solid #bbf7d0", borderRadius: 16, padding: isMobile ? "4px 7px" : "4px 12px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Slack 連携ヘルプ
+          {!isMobile && "Slack 連携ヘルプ"}
         </button>
       </div>
 
       {/* ── タグ別タスク一覧モーダル ── */}
       {tagViewCat && (() => {
-        const cat = mandalaCategories.find((c) => c.id === tagViewCat);
+        const cat = tagViewCat === UNCATEGORIZED
+          ? { id: UNCATEGORIZED, label: "大目標未設定", color: "#6b7280", bg: "#f3f4f6" }
+          : mandalaCategories.find((c) => c.id === tagViewCat);
         if (!cat) return null;
         const daysWithTasks = monthData
-          .map((d) => ({ date: d.date, tasks: d.goals.filter((g) => g.category === tagViewCat) }))
+          .map((d) => ({
+            date: d.date,
+            tasks: d.goals.filter((g) => tagViewCat === UNCATEGORIZED ? !g.category : g.category === tagViewCat),
+          }))
           .filter((d) => d.tasks.length > 0);
         const totalCount  = daysWithTasks.reduce((s, d) => s + d.tasks.length, 0);
         const doneCount   = daysWithTasks.reduce((s, d) => s + d.tasks.filter((g) => g.isCompleted).length, 0);
@@ -851,11 +1065,6 @@ const DailyGoalPage: React.FC = () => {
                               >
                                 {goal.title}
                               </p>
-                              {(goal.plannedMin > 0 || goal.actualMin > 0) && (
-                                <p style={{ fontSize: 11, color: "#9ca3af", margin: "2px 0 0" }}>
-                                  ⏱ 実績 {goal.actualMin > 0 ? fmtDuration(goal.actualMin) : "—"} / 予定 {goal.plannedMin > 0 ? fmtDuration(goal.plannedMin) : "—"}
-                                </p>
-                              )}
                             </div>
                             {/* 矢印 */}
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
@@ -899,12 +1108,24 @@ const DailyGoalPage: React.FC = () => {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   </button>
                 </div>
-                {/* 説明文 */}
-                <div style={{ padding: "10px 12px", background: "#f0fdf9", border: "1px solid #bbf7d0", borderRadius: 10, marginBottom: 12, fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
-                  Slackでボットに箇条書きでメッセージを送ると、各行が<strong>日々の目標として自動登録</strong>されます。<br />
+                {/* 使い方 */}
+                <div style={{ padding: "10px 12px", background: "#f0fdf9", border: "1px solid #bbf7d0", borderRadius: 10, marginBottom: 8, fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
+                  <strong>①設定画面</strong>でSlackワークスペースと連携し、<strong>②Slack上で「@kanaeru」にメンションして箇条書きで投稿</strong>すると、各行が<strong>日々の目標として自動登録</strong>されます。<br />
                   Slackで使った絵文字（✨🎉💪 など）はそのままタイトルに表示されます。<br />
                   このヘルプでは、対応している箇条書き形式と表示可能な絵文字の一覧を確認できます。
                 </div>
+                {!slackOauthStatus?.connected && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", background: "#fefce8", border: "1px solid #fde68a", borderRadius: 10, marginBottom: 12, fontSize: 12, color: "#78620a" }}>
+                    <span>まだSlackと連携していません</span>
+                    <Link
+                      to="/settings"
+                      onClick={() => setSlackHelpOpen(false)}
+                      style={{ color: "#78620a", fontWeight: 700, textDecoration: "underline", whiteSpace: "nowrap" }}
+                    >
+                      設定画面で連携する
+                    </Link>
+                  </div>
+                )}
                 {/* タブ */}
                 <div style={{ display: "flex", gap: 2, background: "#f3f4f6", borderRadius: 10, padding: 3 }}>
                   {(["bullet", "emoji"] as const).map(tab => (
@@ -971,7 +1192,7 @@ const DailyGoalPage: React.FC = () => {
                         <strong style={{ color: "#374151" }}>注意：</strong>
                         <code style={{ background: "#fef9c3", padding: "1px 4px", borderRadius: 3, fontSize: 11 }}>-</code> と <code style={{ background: "#fef9c3", padding: "1px 4px", borderRadius: 3, fontSize: 11 }}>*</code> は後ろに<strong style={{ color: "#374151" }}>半角スペースが必要</strong>です。<br />
                         箇条書きマーカーのない行は導入文として自動スキップされます。<br />
-                        同一行内に <code style={{ background: "#fef9c3", padding: "1px 4px", borderRadius: 3, fontSize: 11 }}>・</code> が複数あっても自動で分割されます。
+                        複数の目標を登録する場合は<strong style={{ color: "#374151" }}>改行して1行に1つずつ</strong>書いてください。箇条書きかどうかは各行の<strong style={{ color: "#374151" }}>先頭の文字</strong>だけで判定するため、文中に <code style={{ background: "#fef9c3", padding: "1px 4px", borderRadius: 3, fontSize: 11 }}>・</code> が含まれていても（例：「・画像・写真を整理する」）分割されません。
                       </div>
                     </div>
                   );
@@ -1090,80 +1311,146 @@ const DailyGoalPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── メインエリア: 左右均等2カラム ── */}
-      <div style={isMobile
-        ? { display: "flex", flexDirection: "column", gap: 10 }
-        : { flex: 1, display: "flex", gap: 14, overflow: "hidden", minHeight: 0 }}>
+      {/* ── メインエリア: 1カラム ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 8 : 14 }}>
 
-        {/* ── 左: 月間カレンダー（flex:1） ── */}
-        <div style={{ ...card(), ...(isMobile ? { display: "flex", flexDirection: "column", order: 2 } : { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }) }}>
-          {/* 月ナビゲーション */}
-          <div style={{ padding: "10px 14px 10px", borderBottom: "1px solid #f3f4f6", flexShrink: 0 }}>
+        {/* ── サマリー・カテゴリ割合 ── */}
+        <div style={card()}>
+          {/* 日送りナビゲーション */}
+          <div ref={dayNavRef} style={{ padding: isMobile ? "8px 12px 8px" : "10px 14px 10px", borderBottom: "1px solid #f3f4f6", position: "relative" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
-                onClick={() => moveMonth(-1)}
+                onClick={() => moveDay(-1)}
                 style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#6b7280", flexShrink: 0 }}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
-              <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#1e1f1f" }}>
-                  {monthBase.getFullYear()}年{monthBase.getMonth() + 1}月
-                </span>
-                {isCurrentMonth && (
-                  <span style={{ fontSize: 10, color: "#13AE67", fontWeight: 700, background: "#f0faf6", borderRadius: 6, padding: "1px 6px" }}>今月</span>
-                )}
-                <button
-                  onClick={() => setShowCalendarJump((v) => !v)}
-                  title="日付を選んで移動"
-                  style={{ width: 24, height: 24, borderRadius: 6, border: showCalendarJump ? "1px solid #13AE67" : "1px solid #e5e7eb", background: showCalendarJump ? "#f0faf6" : "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: showCalendarJump ? "#13AE67" : "#6b7280", flexShrink: 0 }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-                  </svg>
-                </button>
-                {showCalendarJump && (
-                  <div style={{ position: "absolute", top: "110%", left: 0, zIndex: 50, background: "#fff", borderRadius: 12, boxShadow: "0 4px 20px rgba(0,0,0,.14)", padding: "12px 14px", width: 230, border: "1px solid #f0f0f0" }}>
-                    <p style={{ fontSize: 11, color: "#9ca3af", fontWeight: 600, margin: "0 0 8px", letterSpacing: "0.04em" }}>日付を選んで移動</p>
-                    <input
-                      type="date"
-                      defaultValue={selectedDs}
-                      onChange={(e) => e.target.value && jumpToDate(e.target.value)}
-                      style={{ width: "100%", fontSize: 13, border: "1px solid #e5e7eb", borderRadius: 8, padding: "6px 10px", outline: "none", fontFamily: "inherit", color: "#374151", boxSizing: "border-box" as const }}
-                    />
-                    <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
-                      <button
-                        onClick={() => { goToToday(); setShowCalendarJump(false); }}
-                        style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "#13AE67", background: "#f0faf6", border: "1px solid #bbf7d0", borderRadius: 8, padding: "6px 0", cursor: "pointer", fontFamily: "inherit" }}
-                      >今月に戻る</button>
-                      <button
-                        onClick={() => setShowCalendarJump(false)}
-                        style={{ flex: 1, fontSize: 12, fontWeight: 600, color: "#6b7280", background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, padding: "6px 0", cursor: "pointer", fontFamily: "inherit" }}
-                      >閉じる</button>
-                    </div>
-                  </div>
-                )}
-              </div>
               <button
-                onClick={() => moveMonth(1)}
-                disabled={isCurrentMonth}
-                style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #e5e7eb", background: "#fff", cursor: isCurrentMonth ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: isCurrentMonth ? "#d1d5db" : "#6b7280", flexShrink: 0 }}
+                onClick={() => {
+                  if (datePickerOpen) { setDatePickerOpen(false); return; }
+                  setPickerMonth(monthBase);
+                  const rect = dayNavRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    const estHeight = 340;
+                    const spaceBelow = window.innerHeight - rect.bottom;
+                    const openUp = spaceBelow < estHeight && rect.top > spaceBelow;
+                    setPickerAnchor({
+                      top: openUp ? rect.top - 6 : rect.bottom + 6,
+                      left: rect.left + rect.width / 2,
+                      openUp,
+                    });
+                  }
+                  setDatePickerOpen(true);
+                }}
+                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: "4px 0", borderRadius: 8 }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#1e1f1f" }}>
+                  {selectedDayData?.date.toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" }) ?? selectedDs}
+                </span>
+                {isSelectedToday && (
+                  <span style={{ fontSize: 10, color: "#13AE67", fontWeight: 700, background: "#f0faf6", borderRadius: 6, padding: "1px 6px" }}>今日</span>
+                )}
+              </button>
+              {!isSelectedToday && (
+                <button
+                  onClick={goToToday}
+                  style={{ fontSize: 11, fontWeight: 700, color: "#13AE67", background: "#f0faf6", border: "1px solid #bbf7d0", borderRadius: 8, padding: "2px 8px", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}
+                >今日</button>
+              )}
+              <button
+                onClick={() => moveDay(1)}
+                style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#6b7280", flexShrink: 0 }}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
             </div>
 
+            {datePickerOpen && pickerAnchor && (() => {
+              const days = daysInMonthArray(pickerMonth);
+              const leadingBlanks = days[0].getDay(); // 0=日曜
+              const cells: Array<Date | null> = [...Array(leadingBlanks).fill(null), ...days];
+              return (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 90 }} onClick={() => setDatePickerOpen(false)} />
+                  <div style={{
+                    position: "fixed", top: pickerAnchor.top, left: pickerAnchor.left,
+                    transform: `translate(-50%, ${pickerAnchor.openUp ? "-100%" : "0%"})`,
+                    background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, boxShadow: "0 12px 32px rgba(0,0,0,.14)",
+                    padding: 12, width: 268, maxHeight: "calc(100vh - 16px)", overflowY: "auto", zIndex: 100,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <button
+                        onClick={() => setPickerMonth(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth() - 1, 1))}
+                        style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#6b7280" }}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                      </button>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#1e1f1f" }}>{pickerMonth.getFullYear()}年{pickerMonth.getMonth() + 1}月</span>
+                      <button
+                        onClick={() => setPickerMonth(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth() + 1, 1))}
+                        style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#6b7280" }}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 2 }}>
+                      {["日", "月", "火", "水", "木", "金", "土"].map((w, i) => (
+                        <div key={w} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: i === 0 ? "#ef4444" : i === 6 ? "#3b82f6" : "#9ca3af", padding: "2px 0" }}>{w}</div>
+                      ))}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+                      {cells.map((date, i) => {
+                        if (!date) return <div key={`b${i}`} />;
+                        const ds = toDs(date);
+                        const dayData = pickerMonthData?.find((d) => toDs(d.date) === ds);
+                        const hasGoals = (dayData?.goals.length ?? 0) > 0;
+                        const allDone = hasGoals && dayData!.goals.every((g) => g.isCompleted);
+                        const isSel = ds === selectedDs;
+                        const isToday = ds === todayDs;
+                        return (
+                          <button
+                            key={ds}
+                            onClick={() => {
+                              setSelectedDs(ds);
+                              if (pickerMonth.getFullYear() !== monthBase.getFullYear() || pickerMonth.getMonth() !== monthBase.getMonth()) {
+                                setMonthBase(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth(), 1));
+                              }
+                              setDatePickerOpen(false);
+                            }}
+                            style={{
+                              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1,
+                              height: 32, borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+                              border: isToday && !isSel ? "1px solid #bbf7d0" : "1px solid transparent",
+                              background: isSel ? "#13AE67" : "transparent",
+                              color: isSel ? "#fff" : "#374151",
+                              fontSize: 12, fontWeight: isSel || isToday ? 700 : 500,
+                            }}
+                          >
+                            <span>{date.getDate()}</span>
+                            <span style={{
+                              width: 4, height: 4, borderRadius: "50%",
+                              background: !hasGoals ? "transparent" : isSel ? "#fff" : allDone ? "#F472B6" : "#13AE67",
+                            }} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+
             {/* 月次サマリー */}
-            <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ marginTop: isMobile ? 7 : 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
               {summaryChip("達成率", `${monthAchievePct}%`)}
               {summaryChip("タスク", `${monthCompleted}/${monthTotal}`)}
               {summaryChip("記録日数", `${daysWithGoals}/${elapsedDaysInMonth}日`)}
-              {summaryChip("実績/予定", `${monthActualMin > 0 ? fmtDuration(monthActualMin) : "—"} / ${monthPlannedMin > 0 ? fmtDuration(monthPlannedMin) : "—"}`, 2)}
             </div>
           </div>
 
           {/* 大目標ごとの積み上げ（今月）── カレンダーより上に固定表示 */}
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid #f3f4f6", flexShrink: 0 }}>
+          <div style={{ padding: isMobile ? "8px 12px" : "10px 14px", borderBottom: "1px solid #f3f4f6", flexShrink: 0 }}>
             {mandalaCategories.length > 0 ? (() => {
               const allMonthGoals = monthData.flatMap((d) => d.goals);
               const stats = mandalaCategories
@@ -1184,6 +1471,7 @@ const DailyGoalPage: React.FC = () => {
               const totalCategorized = stats.reduce((s, x) => s + x.count, 0);
               const totalDone        = stats.reduce((s, x) => s + x.done,  0);
               const r = 38, cx = 50, cy = 50;
+              const donutSize = isMobile ? 92 : 150;
               const circumference = 2 * Math.PI * r;
               let cumulative = 0;
               const arcs = stats.map((s) => {
@@ -1191,26 +1479,61 @@ const DailyGoalPage: React.FC = () => {
                 const doneDash  = (s.done  / totalCategorized) * circumference;
                 const offset = cumulative;
                 cumulative += totalDash;
-                return { ...s, totalDash, doneDash, offset };
+                // 弧の中央角度（12時位置起点・時計回り）からツールチップの表示座標を算出
+                const midAngleRad = ((offset + totalDash / 2) / circumference) * 2 * Math.PI;
+                const anchorX = cx + r * Math.sin(midAngleRad);
+                const anchorY = cy - r * Math.cos(midAngleRad);
+                return { ...s, totalDash, doneDash, offset, anchorX, anchorY };
               });
+              const hoveredArc = arcs.find((a) => a.cat.id === hoveredCat) ?? null;
 
               return (
                 <>
-                  <p style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", margin: "0 0 10px", letterSpacing: "0.02em" }}>大目標ごとの割合（今月）</p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+                  <button
+                    onClick={() => setCategoryBreakdownOpen((o) => !o)}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                      background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit",
+                      margin: categoryBreakdownOpen ? (isMobile ? "0 0 6px" : "0 0 10px") : 0,
+                    }}
+                  >
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", letterSpacing: "0.02em" }}>大目標ごとの割合（今月）</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ transform: categoryBreakdownOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }}
+                    >
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </button>
+                  {categoryBreakdownOpen && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: isMobile ? 10 : 16, alignItems: "center" }}>
                     {/* ドーナツ円グラフ：薄色=全体・濃色=達成済み */}
-                    <div style={{ position: "relative", width: 104, height: 104, flexShrink: 0, margin: "0 auto" }}>
-                      <svg width="104" height="104" viewBox="0 0 100 100">
+                    <div style={{ position: "relative", width: donutSize, height: donutSize, flexShrink: 0, margin: "0 auto" }}>
+                      <svg width={donutSize} height={donutSize} viewBox="0 0 100 100">
                         <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f3f4f6" strokeWidth={16} />
                         {arcs.map(({ cat, totalDash, doneDash, offset }) => (
-                          <React.Fragment key={cat.id}>
-                            {/* 全体（薄色） */}
+                          <g
+                            key={cat.id}
+                            onMouseEnter={() => setHoveredCat(cat.id)}
+                            onMouseLeave={() => setHoveredCat((c) => (c === cat.id ? null : c))}
+                            onClick={() => setTagViewCat(cat.id)}
+                            style={{ cursor: "pointer" }}
+                          >
+                            {/* 当たり判定を広げるための透明な太いストローク */}
                             <circle
                               cx={cx} cy={cy} r={r} fill="none"
-                              stroke={cat.color} strokeOpacity={0.2} strokeWidth={16}
+                              stroke="transparent" strokeWidth={24}
                               strokeDasharray={`${totalDash.toFixed(2)} ${(circumference - totalDash).toFixed(2)}`}
                               strokeDashoffset={(-offset).toFixed(2)}
                               transform={`rotate(-90 ${cx} ${cy})`}
+                            />
+                            {/* 全体（薄色） */}
+                            <circle
+                              cx={cx} cy={cy} r={r} fill="none"
+                              stroke={cat.color} strokeOpacity={hoveredCat === cat.id ? 0.35 : 0.2} strokeWidth={16}
+                              strokeDasharray={`${totalDash.toFixed(2)} ${(circumference - totalDash).toFixed(2)}`}
+                              strokeDashoffset={(-offset).toFixed(2)}
+                              transform={`rotate(-90 ${cx} ${cy})`}
+                              style={{ transition: "stroke-opacity 0.1s" }}
                             />
                             {/* 達成分（濃色） */}
                             {doneDash > 0 && (
@@ -1222,16 +1545,42 @@ const DailyGoalPage: React.FC = () => {
                                 transform={`rotate(-90 ${cx} ${cy})`}
                               />
                             )}
-                          </React.Fragment>
+                          </g>
                         ))}
                       </svg>
-                      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                        <span style={{ fontSize: 15, fontWeight: 700, color: "#374151", lineHeight: 1 }}>{totalDone}/{totalCategorized}</span>
-                        <span style={{ fontSize: 9, color: "#9ca3af" }}>達成</span>
+                      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                        <span style={{ fontSize: isMobile ? 14 : 22, fontWeight: 700, color: "#374151", lineHeight: 1 }}>{totalDone}/{totalCategorized}</span>
+                        <span style={{ fontSize: isMobile ? 8 : 13, color: "#9ca3af" }}>達成</span>
                       </div>
+                      {hoveredArc && (() => {
+                        const pxScale = donutSize / 100;
+                        const px = hoveredArc.anchorX * pxScale;
+                        const py = hoveredArc.anchorY * pxScale;
+                        const isTopHalf = hoveredArc.anchorY < cy;
+                        const pct = Math.round((hoveredArc.count / totalCategorized) * 100);
+                        return (
+                          <div style={{
+                            position: "absolute", left: px, top: py, pointerEvents: "none", zIndex: 20,
+                            transform: `translate(-50%, ${isTopHalf ? "-116%" : "16%"})`,
+                          }}>
+                            <div style={{
+                              background: "#1f2937", color: "#fff", borderRadius: 8, padding: "6px 10px",
+                              whiteSpace: "nowrap", boxShadow: "0 4px 12px rgba(0,0,0,.18)",
+                            }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700 }}>
+                                <span style={{ width: 7, height: 7, borderRadius: "50%", background: hoveredArc.cat.color, flexShrink: 0 }} />
+                                {hoveredArc.cat.label}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#d1d5db", marginTop: 2 }}>
+                                {pct}%（{hoveredArc.done}/{hoveredArc.count}件達成）
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                     {/* 凡例（割合順） */}
-                    <div style={{ flex: "1 1 170px", display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                    <div style={{ flex: "1 1 170px", maxWidth: 460, display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
                       {stats.map(({ cat, count, done }) => {
                         const pct = Math.round((count / totalCategorized) * 100);
                         return (
@@ -1249,8 +1598,12 @@ const DailyGoalPage: React.FC = () => {
                       })}
                     </div>
                   </div>
-                  {uncategorizedCount > 0 && (
-                    <p style={{ fontSize: 10, color: "#d1d5db", margin: "8px 2px 0" }}>大目標未設定のタスク: {uncategorizedCount}件</p>
+                  )}
+                  {categoryBreakdownOpen && uncategorizedCount > 0 && (
+                    <button
+                      onClick={() => setTagViewCat(UNCATEGORIZED)}
+                      style={{ display: "block", fontSize: 10, color: "#9ca3af", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: "4px 2px 0", margin: 0, textDecoration: "underline", textUnderlineOffset: 2 }}
+                    >大目標未設定のタスク: {uncategorizedCount}件</button>
                   )}
                 </>
               );
@@ -1261,150 +1614,48 @@ const DailyGoalPage: React.FC = () => {
             )}
           </div>
 
-          {/* カレンダー本体（曜日ヘッダーも内側に入れてスクロールバー幅を共有させる） */}
-          <div style={isMobile ? { padding: "0 10px 12px" } : { flex: 1, overflowY: "auto", padding: "0 10px 12px" }}>
-            {/* 曜日ヘッダー：スクロール時も上部に固定 */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4, padding: "8px 0 4px", position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
-              {DAY_NAMES_SHORT.map((w) => (
-                <span key={w} style={{ textAlign: "center" as const, fontSize: 11, color: "#9ca3af", fontWeight: 600 }}>{w}</span>
-              ))}
-            </div>
-            {isLoading && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 0", gap: 8 }}>
-                <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2.5px solid #e5e7eb", borderTopColor: "#13AE67", animation: "spin 0.8s linear infinite" }} />
-                <span style={{ fontSize: 12, color: "#9ca3af" }}>読み込み中...</span>
-              </div>
-            )}
-            {!isLoading && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
-                {monthGrid.map((cell) => {
-                  const ds       = toDs(cell.date);
-                  const dayData  = cell.inMonth ? monthData.find((d) => toDs(d.date) === ds) : undefined;
-                  const total    = dayData?.goals.length ?? 0;
-                  const done     = dayData?.goals.filter((g) => g.isCompleted).length ?? 0;
-                  const pct      = total > 0 ? Math.round((done / total) * 100) : 0;
-                  const allDone  = total > 0 && done === total;
-                  const isTd     = ds === todayDs;
-                  const isSel    = ds === selectedDs;
-                  return (
-                    <button
-                      key={ds}
-                      className="dgp-cal-cell"
-                      disabled={!cell.inMonth}
-                      onClick={() => {
-                        setSelectedDs(ds);
-                        setSelectedGoalId(null);
-                        setNewFormOpen(false);
-                        if (isMobile) window.scrollTo({ top: 0, behavior: "smooth" });
-                      }}
-                      style={{
-                        borderRadius: 8, width: "100%",
-                        border: isSel ? "2px solid #13AE67" : isTd ? "1.5px solid #13AE67" : "1px solid transparent",
-                        background: !cell.inMonth ? "transparent" : allDone ? "#F472B6" : total > 0 ? `rgba(19,174,103,${(0.15 + (pct / 100) * 0.55).toFixed(2)})` : "#f9fafb",
-                        cursor: cell.inMonth ? "pointer" : "default",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}
-                    >
-                      <span style={{ fontSize: 12, fontWeight: isTd ? 700 : 500, color: !cell.inMonth ? "#e5e7eb" : allDone ? "#fff" : "#374151" }}>
-                        {cell.date.getDate()}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <p style={{ fontSize: 10, color: "#9ca3af", margin: "10px 2px 0" }}>
-              薄緑＝一部達成 · 濃い緑＝達成率が高い · ピンク＝全達成 · グレー＝未登録
-            </p>
-          </div>
         </div>
 
-        {/* ── 右: 選択日の詳細（flex:1） ── */}
-        <div style={isMobile
-          ? { display: "flex", flexDirection: "column", minWidth: 0, order: 1 }
-          : { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        {/* ── 選択日のタスク一覧・詳細 ── */}
+        <div style={card()}>
 
-          <div style={{ ...card(), ...(isMobile ? { display: "flex", flexDirection: "column", overflow: "hidden" } : { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }) }}>
-
-            {/* ── 常時表示: 日付ヘッダー + デイサマリー ── */}
-            <div style={{ padding: "12px 20px 12px", borderBottom: "1px solid #f3f4f6", flexShrink: 0 }}>
-              {/* 日付行：今日か履歴かを明確に分ける */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  {isSelectedToday ? (
-                    <>
-                      <span style={{ fontSize: 17, fontWeight: 700, color: "#13AE67" }}>今日</span>
-                      <span style={{ fontSize: 12, color: "#9ca3af" }}>
-                        {selectedDayData?.date.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" })}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ fontSize: 15, fontWeight: 700, color: "#1e1f1f" }}>
-                        {selectedDayData?.date.toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" }) ?? "—"}
-                      </span>
-                      <button
-                        onClick={goToToday}
-                        style={{ fontSize: 11, fontWeight: 700, color: "#13AE67", background: "#f0faf6", border: "1px solid #bbf7d0", borderRadius: 12, padding: "2px 10px", cursor: "pointer", fontFamily: "inherit" }}
-                      >今日に戻る</button>
-                    </>
-                  )}
+            {/* ── 常時表示: 選択日のサマリー ── */}
+            <div style={{ padding: isMobile ? "8px 14px 8px" : "12px 20px 12px", borderBottom: "1px solid #f3f4f6", flexShrink: 0 }}>
+              {isLoading ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2.5px solid #e5e7eb", borderTopColor: "#13AE67", animation: "spin 0.8s linear infinite" }} />
+                  <span style={{ fontSize: 12, color: "#9ca3af" }}>読み込み中...</span>
                 </div>
-                {goals.length > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ width: 70, height: 4, background: "#f3f4f6", borderRadius: 4, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${achievePct}%`, background: achievePct === 100 ? "#F472B6" : "#13AE67", borderRadius: 4 }} />
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: achievePct === 100 ? "#F472B6" : "#13AE67" }}>{achievePct}%</span>
-                  </div>
-                )}
-              </div>
-              {/* 進捗サークル + 時間カード + カテゴリ */}
-              {(() => {
-                const totalPlanned = goals.reduce((s, g) => s + (g.plannedMin || 0), 0);
-                const totalActual  = goals.reduce((s, g) => s + (g.actualMin || 0), 0);
+              ) : (() => {
                 const r = 24; const circ = 2 * Math.PI * r; const dash = circ * achievePct / 100;
+                const ringSize = isMobile ? 44 : 58;
                 return (
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: (totalPlanned > 0 || totalActual > 0) ? 10 : 0 }}>
-                      <div style={{ position: "relative", width: 58, height: 58, flexShrink: 0 }}>
-                        <svg width="58" height="58" viewBox="0 0 58 58">
-                          <circle cx="29" cy="29" r={r} fill="none" stroke="#f3f4f6" strokeWidth="6"/>
-                          <circle cx="29" cy="29" r={r} fill="none"
-                            stroke={achievePct === 100 ? "#F472B6" : "#13AE67"} strokeWidth="6"
-                            strokeDasharray={`${dash} ${circ - dash}`}
-                            strokeLinecap="round"
-                            transform="rotate(-90 29 29)"
-                            style={{ transition: "stroke-dasharray 0.4s" }}
-                          />
-                        </svg>
-                        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: achievePct === 100 ? "#F472B6" : "#13AE67" }}>{achievePct}%</span>
-                        </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 12 }}>
+                    <div style={{ position: "relative", width: ringSize, height: ringSize, flexShrink: 0 }}>
+                      <svg width={ringSize} height={ringSize} viewBox="0 0 58 58">
+                        <circle cx="29" cy="29" r={r} fill="none" stroke="#f3f4f6" strokeWidth="6"/>
+                        <circle cx="29" cy="29" r={r} fill="none"
+                          stroke={achievePct === 100 ? "#F472B6" : "#13AE67"} strokeWidth="6"
+                          strokeDasharray={`${dash} ${circ - dash}`}
+                          strokeLinecap="round"
+                          transform="rotate(-90 29 29)"
+                          style={{ transition: "stroke-dasharray 0.4s" }}
+                        />
+                      </svg>
+                      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <span style={{ fontSize: isMobile ? 9 : 11, fontWeight: 700, color: achievePct === 100 ? "#F472B6" : "#13AE67" }}>{achievePct}%</span>
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ fontSize: 20, fontWeight: 700, color: "#1e1f1f", margin: 0, lineHeight: 1 }}>
-                          {completed}<span style={{ fontSize: 13, color: "#9ca3af", fontWeight: 400 }}>/{goals.length}</span>
-                        </p>
-                        <p style={{ fontSize: 12, color: "#9ca3af", margin: "4px 0 0" }}>タスク完了</p>
-                        {achievePct === 100 && goals.length > 0 && (
-                          <p style={{ fontSize: 12, color: "#F472B6", fontWeight: 700, margin: "2px 0 0" }}>🎉 全タスク達成！</p>
-                        )}
-                        {goals.length === 0 && (
-                          <p style={{ fontSize: 12, color: "#9ca3af", margin: "4px 0 0" }}>{isSelectedToday ? "今日の目標を追加しましょう" : "この日の目標はありません"}</p>
-                        )}
-                      </div>
-                      {(totalPlanned > 0 || totalActual > 0) && (
-                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                          <div style={{ background: "#f9fafb", borderRadius: 10, padding: "6px 10px", textAlign: "center" as const }}>
-                            <p style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600, margin: "0 0 2px", letterSpacing: "0.03em" }}>予定</p>
-                            <p style={{ fontSize: 14, fontWeight: 700, color: "#374151", margin: 0 }}>{totalPlanned > 0 ? fmtDuration(totalPlanned) : "—"}</p>
-                          </div>
-                          <div style={{ background: "#f0faf6", borderRadius: 10, padding: "6px 10px", textAlign: "center" as const }}>
-                            <p style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600, margin: "0 0 2px", letterSpacing: "0.03em" }}>実績</p>
-                            <p style={{ fontSize: 14, fontWeight: 700, color: "#13AE67", margin: 0 }}>{totalActual > 0 ? fmtDuration(totalActual) : "—"}</p>
-                          </div>
-                        </div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontSize: isMobile ? 16 : 20, fontWeight: 700, color: "#1e1f1f", margin: 0, lineHeight: 1 }}>
+                        {completed}<span style={{ fontSize: isMobile ? 11 : 13, color: "#9ca3af", fontWeight: 400 }}>/{goals.length}</span>
+                      </p>
+                      <p style={{ fontSize: isMobile ? 11 : 12, color: "#9ca3af", margin: "4px 0 0" }}>タスク完了</p>
+                      {achievePct === 100 && goals.length > 0 && (
+                        <p style={{ fontSize: isMobile ? 11 : 12, color: "#F472B6", fontWeight: 700, margin: "2px 0 0" }}>🎉 全タスク達成！</p>
+                      )}
+                      {goals.length === 0 && (
+                        <p style={{ fontSize: isMobile ? 11 : 12, color: "#9ca3af", margin: "4px 0 0" }}>{isSelectedToday ? "今日の目標を追加しましょう" : "この日の目標はありません"}</p>
                       )}
                     </div>
                   </div>
@@ -1413,7 +1664,7 @@ const DailyGoalPage: React.FC = () => {
             </div>
 
             {/* ── この日のタスク一覧 + 詳細/追加フォーム（スクロール可） ── */}
-            <div ref={scrollAreaRef} style={isMobile ? { padding: "12px 16px 16px", overflowY: "auto" as const, overflowX: "hidden" } : { flex: 1, overflowY: "auto" as const, padding: "12px 20px 16px" }}>
+            <div ref={scrollAreaRef} style={{ padding: isMobile ? "8px 14px 12px" : "12px 20px 16px", overflowX: "hidden" }}>
 
               {/* タスク一覧（カテゴリ別アコーディオン） */}
               {goals.length > 0 && (() => {
@@ -1421,8 +1672,8 @@ const DailyGoalPage: React.FC = () => {
                   const isSelected = selectedGoalId === goal.id;
                   const cat = goal.category ? mandalaCategories.find((c) => c.id === goal.category) : null;
                   return (
+                    <React.Fragment key={goal.id}>
                     <div
-                      key={goal.id}
                       data-goal-id={goal.id}
                       draggable={canEdit}
                       onDragStart={() => { dragGoalId.current = goal.id; setActiveDragId(goal.id); }}
@@ -1486,7 +1737,7 @@ const DailyGoalPage: React.FC = () => {
                         setActiveDragId(null);
                         setDragOverId(null);
                       }}
-                      onClick={() => { if (wasTouchDrag.current) { wasTouchDrag.current = false; return; } startEdit(goal); }}
+                      onClick={() => { if (wasTouchDrag.current) { wasTouchDrag.current = false; return; } if (isSelected) { cancelEdit(); } else { startEdit(goal); } }}
                       style={{
                         display: "flex", alignItems: "center", gap: 8,
                         padding: "8px 12px",
@@ -1525,27 +1776,55 @@ const DailyGoalPage: React.FC = () => {
                           </svg>
                         )}
                       </button>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div
-                          title={goal.source === "slack" && goal.title.length > TITLE_MAX ? goal.title : undefined}
-                          style={{ fontSize: 13, fontWeight: 500, color: goal.isCompleted ? "#9ca3af" : "#374151", textDecoration: goal.isCompleted ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        >
-                          {goal.title}
-                        </div>
-                        {(goal.plannedMin > 0 || goal.actualMin > 0) && (
-                          <div style={{ marginTop: 2 }}>
-                            <span style={{ fontSize: 11, color: "#9ca3af" }}>
-                              ⏱ 実績 {goal.actualMin > 0 ? fmtDuration(goal.actualMin) : "—"} / 予定 {goal.plannedMin > 0 ? fmtDuration(goal.plannedMin) : "—"}
-                            </span>
+                      <div style={{ flex: 1, minWidth: 0 }} onClick={(e) => { if (isSelected) e.stopPropagation(); }}>
+                        {isSelected && isTitleEditing ? (
+                          <textarea
+                            ref={titleTextareaRef}
+                            autoFocus
+                            className="focus:outline-none focus:ring-0 focus:shadow-none"
+                            disabled={!canEdit}
+                            maxLength={goal.source === "slack" ? undefined : TITLE_MAX}
+                            value={editDraft.title}
+                            onChange={(e) => {
+                              updateEditDraft((d) => ({ ...d, title: e.target.value }));
+                              e.target.style.height = "auto";
+                              e.target.style.height = e.target.scrollHeight + "px";
+                            }}
+                            onBlur={() => setIsTitleEditing(false)}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setIsTitleEditing(false); } if (e.key === "Escape") setIsTitleEditing(false); }}
+                            rows={1}
+                            style={{ width: "100%", fontSize: 13, fontWeight: 500, color: "#374151", border: "none", borderBottom: "2px solid #13AE67", outline: "none", background: "transparent", fontFamily: "inherit", resize: "none", padding: 0, boxSizing: "border-box" as const, lineHeight: 1.4, overflow: "hidden", display: "block" }}
+                          />
+                        ) : (
+                          <div
+                            onClick={() => isSelected && canEdit && setIsTitleEditing(true)}
+                            title={goal.source === "slack" && goal.title.length > TITLE_MAX ? goal.title : undefined}
+                            style={{
+                              fontSize: 13, fontWeight: 500, color: goal.isCompleted ? "#9ca3af" : "#374151",
+                              textDecoration: goal.isCompleted ? "line-through" : "none",
+                              overflow: isSelected ? "visible" : "hidden", textOverflow: isSelected ? "clip" : "ellipsis",
+                              whiteSpace: isSelected ? "normal" : "nowrap", wordBreak: "break-word", overflowWrap: "anywhere",
+                              cursor: isSelected && canEdit ? "text" : "default",
+                            }}
+                          >
+                            {isSelected ? (editDraft.title || goal.title) : goal.title}
                           </div>
                         )}
                       </div>
                       {goal.source === "slack" && <span style={tag("#f0faf6", "#13AE67")}>Slack</span>}
                       {goal.carriedFrom && <span style={{ fontSize: 9, color: "#92400e", background: "#fef3c7", borderRadius: 4, padding: "1px 4px", flexShrink: 0 }}>引継ぎ</span>}
-                      {isSelected && (
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#13AE67" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
-                      )}
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isSelected ? "#13AE67" : "#d1d5db"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                        style={{ flexShrink: 0, transition: "transform 0.2s", transform: isSelected ? "rotate(180deg)" : "rotate(0deg)" }}>
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
                     </div>
+                    {isSelected && selectedGoal && (
+                      <div style={{ background: "#fafffd", borderTop: "1px solid #e5f3ec", padding: "14px 16px 16px" }}>
+                        <div ref={detailPanelRef} />
+                        {renderGoalDetail(selectedGoal)}
+                      </div>
+                    )}
+                  </React.Fragment>
                   );
                 };
 
@@ -1595,283 +1874,7 @@ const DailyGoalPage: React.FC = () => {
                 );
               })()}
 
-              <div ref={detailPanelRef} />
-              {selectedGoal ? (
-                <>
-                  {/* タスクヘッダー：完了チェック＋タイトル＋閉じる */}
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid #f3f4f6" }}>
-                    <button
-                      onClick={() => {
-                        const nowCompleted = !selectedGoal.isCompleted;
-                        updateGoal(selectedGoal.id, { isCompleted: nowCompleted });
-                        if (nowCompleted) {
-                          setDurationPopup({ goalId: selectedGoal.id, input: "" });
-                        } else {
-                          if (durationPopup?.goalId === selectedGoal.id) setDurationPopup(null);
-                        }
-                        DailyGoalService.apiDailyGoalsDailyGoalIdCompletePut(selectedGoal.id, {
-                          is_completed: nowCompleted ? "1" : "0",
-                          actual_min:   optionalMin(editDraft.actualMin),
-                        }).catch(err => console.error("complete toggle error:", err));
-                      }}
-                      disabled={!canEdit}
-                      style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, cursor: canEdit ? "pointer" : "default", border: "none", background: selectedGoal.isCompleted ? "#13AE67" : "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", transition: "all .2s" }}
-                    >
-                      {selectedGoal.isCompleted && (
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                          <path d="M2 6L5 9L10 3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      )}
-                    </button>
-                    {isTitleEditing ? (
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <textarea
-                          ref={titleTextareaRef}
-                          autoFocus
-                          disabled={!canEdit}
-                          maxLength={selectedGoal.source === "slack" ? undefined : TITLE_MAX}
-                          value={editDraft.title}
-                          onChange={(e) => {
-                            updateEditDraft((d) => ({ ...d, title: e.target.value }));
-                            e.target.style.height = "auto";
-                            e.target.style.height = e.target.scrollHeight + "px";
-                          }}
-                          onBlur={() => setIsTitleEditing(false)}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setIsTitleEditing(false); } if (e.key === "Escape") setIsTitleEditing(false); }}
-                          rows={1}
-                          style={{ width: "100%", fontSize: 14, fontWeight: 700, color: selectedGoal.isCompleted ? "#9ca3af" : "#1e1f1f", border: "none", borderBottom: "2px solid #13AE67", outline: "none", background: "transparent", fontFamily: "inherit", resize: "none", padding: "2px 0", boxSizing: "border-box" as const, lineHeight: 1.5, textDecoration: selectedGoal.isCompleted ? "line-through" : "none", overflow: "hidden", display: "block" }}
-                        />
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
-                          {selectedGoal.source === "slack" && editDraft.title.length > TITLE_MAX
-                            ? <span style={{ fontSize: 10, color: "#f59e0b" }}>Slack 取込のため制限外ですが、短縮を推奨します</span>
-                            : <span />}
-                          <span style={{ fontSize: 10, fontWeight: 600, flexShrink: 0, color: selectedGoal.source === "slack" && editDraft.title.length > TITLE_MAX ? "#f59e0b" : editDraft.title.length >= TITLE_MAX ? "#ef4444" : editDraft.title.length >= TITLE_MAX - 5 ? "#f59e0b" : "#9ca3af" }}>
-                            {editDraft.title.length}{selectedGoal.source !== "slack" && `/${TITLE_MAX}`}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "flex-start", gap: 4 }}>
-                        <p
-                          onClick={() => canEdit && setIsTitleEditing(true)}
-                          style={{ flex: 1, fontSize: 14, fontWeight: 700, color: selectedGoal.isCompleted ? "#9ca3af" : "#1e1f1f", margin: 0, wordBreak: "break-word", overflowWrap: "anywhere", textDecoration: selectedGoal.isCompleted ? "line-through" : "none", cursor: canEdit ? "text" : "default" }}
-                        >
-                          {editDraft.title || selectedGoal.title}
-                        </p>
-                        {canEdit && (
-                          <button
-                            onClick={() => setIsTitleEditing(true)}
-                            style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", padding: "2px", display: "flex", alignItems: "center", flexShrink: 0, marginTop: 1 }}
-                            title="タイトルを編集"
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => cancelEdit()}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", padding: "2px", display: "flex", alignItems: "center", flexShrink: 0 }}
-                      title="閉じる"
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* 実績時間バナー（完了時） */}
-                  {durationPopup?.goalId === selectedGoal.id && (
-                    <div style={{ marginBottom: 14, background: "#fff", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 12px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <p style={{ fontSize: 11, fontWeight: 700, color: "#065f46", margin: 0 }}>⏱ 実績時間を記録しましょう</p>
-                        <button onClick={() => setDurationPopup(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: 12, fontWeight: 600, fontFamily: "inherit", padding: "0 2px" }}>スキップ</button>
-                      </div>
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
-                        {[15, 30, 60, 90, 120].map((min) => (
-                          <button key={min} type="button" disabled={!canEdit}
-                            onClick={() => updateEditDraft((d) => ({ ...d, actualMin: d.actualMin === min ? 0 : min }))}
-                            style={{ fontSize: 11, fontWeight: 600, padding: "4px 8px", borderRadius: 8, border: "1px solid #bbf7d0", cursor: canEdit ? "pointer" : "default", fontFamily: "inherit", background: editDraft.actualMin === min ? "#13AE67" : "#fff", color: editDraft.actualMin === min ? "#fff" : "#065f46" }}
-                          >{fmtDuration(min)}</button>
-                        ))}
-                        <input type="number" min={0} max={480} step={5} disabled={!canEdit}
-                          value={editDraft.actualMin || ""}
-                          onChange={(e) => updateEditDraft((d) => ({ ...d, actualMin: Math.max(0, Math.min(480, Number(e.target.value) || 0)) }))}
-                          placeholder="例: 45"
-                          style={{ width: 88, fontSize: 12, border: "1px solid #bbf7d0", borderRadius: 8, padding: "4px 8px", outline: "none", fontFamily: "inherit", color: "#374151" }}
-                        />
-                        <span style={{ fontSize: 11, color: "#9ca3af" }}>分</span>
-                        {editDraft.actualMin > 0 && <span style={{ fontSize: 11, color: "#13AE67", fontWeight: 700 }}>{fmtDuration(editDraft.actualMin)}</span>}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* マンダラ大目標 */}
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>マンダラ大目標</label>
-                      <div style={{ position: "relative", display: "flex", alignItems: "center", flex: 1 }}>
-                        <select
-                          value={editDraft.category}
-                          onChange={(e) => updateEditDraft((d) => ({ ...d, category: e.target.value }))}
-                          disabled={isLoadingMandalaCategories || !canEdit}
-                          style={{ width: "100%", fontSize: 12, fontWeight: 600, fontFamily: "inherit", border: "1px solid #e5e7eb", borderRadius: 8, padding: "5px 28px 5px 10px", appearance: "none" as const, outline: "none", cursor: isLoadingMandalaCategories || !canEdit ? "default" : "pointer", background: isLoadingMandalaCategories ? "#f9fafb" : "#fff", color: editDraft.category ? "#374151" : "#9ca3af" }}
-                        >
-                          <option value="">
-                            {isLoadingMandalaCategories ? "読み込み中..." : "大目標を選択（任意）"}
-                          </option>
-                          {editDraft.category && !mandalaCategories.some((c) => c.id === editDraft.category) && (
-                            <option value={editDraft.category}>（登録済みの大目標）</option>
-                          )}
-                          {mandalaCategories.map((cat) => (
-                            <option key={cat.id} value={cat.id}>{cat.label}</option>
-                          ))}
-                        </select>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ position: "absolute", right: 8, pointerEvents: "none" }}><polyline points="6 9 12 15 18 9"/></svg>
-                      </div>
-                    </div>
-                    {!isLoadingMandalaCategories && mandalaCategories.length === 0 && (
-                      <p style={{ fontSize: 10, color: "#9ca3af", margin: "4px 0 0 82px" }}>
-                        マンダラチャートに大目標が登録されていません
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 予定時間 */}
-                  <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-                    <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, width: 52, flexShrink: 0 }}>予定時間</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      {[15, 30, 60, 90, 120].map((min) => (
-                        <button key={min} type="button" disabled={!canEdit}
-                          onClick={() => updateEditDraft((d) => ({ ...d, plannedMin: d.plannedMin === min ? 0 : min }))}
-                          style={{ fontSize: 11, fontWeight: 600, padding: "4px 8px", borderRadius: 8, border: "1px solid #e5e7eb", cursor: canEdit ? "pointer" : "default", fontFamily: "inherit", background: editDraft.plannedMin === min ? "#13AE67" : "#fff", color: editDraft.plannedMin === min ? "#fff" : "#6b7280" }}
-                        >{fmtDuration(min)}</button>
-                      ))}
-                      <input type="number" min={0} max={480} step={5} disabled={!canEdit}
-                        value={editDraft.plannedMin || ""}
-                        onChange={(e) => updateEditDraft((d) => ({ ...d, plannedMin: Math.max(0, Math.min(480, Number(e.target.value) || 0)) }))}
-                        placeholder="分"
-                        style={{ width: 72, fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "4px 6px", outline: "none", fontFamily: "inherit", color: "#374151", textAlign: "right" as const }}
-                      />
-                      <span style={{ fontSize: 11, color: "#9ca3af" }}>分</span>
-                    </div>
-                  </div>
-
-                  {/* 実績時間 */}
-                  <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-                    <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, width: 52, flexShrink: 0 }}>実績時間</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      {[15, 30, 60, 90, 120].map((min) => (
-                        <button key={min} type="button" disabled={!canEdit}
-                          onClick={() => updateEditDraft((d) => ({ ...d, actualMin: d.actualMin === min ? 0 : min }))}
-                          style={{ fontSize: 11, fontWeight: 600, padding: "4px 8px", borderRadius: 8, border: "1px solid #e5e7eb", cursor: canEdit ? "pointer" : "default", fontFamily: "inherit", background: editDraft.actualMin === min ? "#13AE67" : "#fff", color: editDraft.actualMin === min ? "#fff" : "#6b7280" }}
-                        >{fmtDuration(min)}</button>
-                      ))}
-                      <input type="number" min={0} max={480} step={5} disabled={!canEdit}
-                        value={editDraft.actualMin || ""}
-                        onChange={(e) => updateEditDraft((d) => ({ ...d, actualMin: Math.max(0, Math.min(480, Number(e.target.value) || 0)) }))}
-                        placeholder="分"
-                        style={{ width: 72, fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "4px 6px", outline: "none", fontFamily: "inherit", color: "#374151", textAlign: "right" as const }}
-                      />
-                      <span style={{ fontSize: 11, color: "#9ca3af" }}>分</span>
-                      {editDraft.actualMin > 0 && <span style={{ fontSize: 11, color: "#13AE67", fontWeight: 700 }}>{fmtDuration(editDraft.actualMin)}</span>}
-                    </div>
-                  </div>
-
-                  {/* 日付（別日への移動） */}
-                  <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-                    <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, width: 36 }}>日付</label>
-                    <input
-                      type="date"
-                      value={editDraft.goalDate}
-                      disabled={!canEdit}
-                      onChange={(e) => updateEditDraft((d) => ({ ...d, goalDate: e.target.value }))}
-                      style={{ fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "4px 8px", outline: "none", fontFamily: "inherit", color: "#374151", background: "#fff" }}
-                    />
-                  </div>
-
-                  {/* 期日 */}
-                  <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-                    <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, width: 36 }}>期日</label>
-                    <input type="date" value={editDraft.dueDate} disabled={!canEdit}
-                      onChange={(e) => updateEditDraft((d) => ({ ...d, dueDate: e.target.value }))}
-                      style={{ fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "4px 8px", outline: "none", fontFamily: "inherit", color: editDraft.dueDate ? "#374151" : "#9ca3af", background: "#fff" }}
-                    />
-                    {canEdit && editDraft.dueDate && (
-                      <button onClick={() => updateEditDraft((d) => ({ ...d, dueDate: "" }))} style={{ fontSize: 11, color: "#9ca3af", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>クリア</button>
-                    )}
-                  </div>
-
-                  {/* メモ */}
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                      <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>メモ</label>
-                      <span style={{
-                        fontSize: 10, fontWeight: 600,
-                        color: editDraft.memo.length >= MEMO_MAX ? "#ef4444" : editDraft.memo.length >= MEMO_MAX - 50 ? "#f59e0b" : "#9ca3af",
-                      }}>{editDraft.memo.length}/{MEMO_MAX}</span>
-                    </div>
-                    <textarea
-                      value={editDraft.memo}
-                      disabled={!canEdit}
-                      maxLength={MEMO_MAX}
-                      onChange={(e) => updateEditDraft((d) => ({ ...d, memo: e.target.value }))}
-                      placeholder="メモを入力..."
-                      rows={3}
-                      style={{ width: "100%", fontSize: 12, color: "#374151", border: "1px solid #e5e7eb", borderRadius: 8, padding: "6px 10px", outline: "none", fontFamily: "inherit", resize: "vertical", lineHeight: 1.6, background: canEdit ? "#fff" : "#f9fafb", boxSizing: "border-box" as const }}
-                      onFocus={(e) => { e.target.style.borderColor = "#13AE67"; }}
-                      onBlur={(e) => { e.target.style.borderColor = "#e5e7eb"; }}
-                    />
-                  </div>
-
-                  {/* 保存エラー */}
-                  {saveError && (
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 6, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
-                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                      </svg>
-                      <span style={{ fontSize: 12, color: "#ef4444", lineHeight: 1.5 }}>{saveError}</span>
-                    </div>
-                  )}
-
-                  {/* 削除 / コピー ｜ キャンセル / 保存 */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {canEdit && (
-                        <button
-                          onClick={() => setDeleteConfirm({ goalId: selectedGoal.id, title: selectedGoal.title })}
-                          style={{ padding: "6px 10px", borderRadius: 20, border: "1px solid #fca5a5", background: "#fff", fontSize: 12, fontWeight: 600, color: "#ef4444", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" as const }}
-                          title="削除"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-                          </svg>
-                          削除
-                        </button>
-                      )}
-                      {canEdit && (
-                        <button
-                          onClick={() => setCopyModal({ goalId: selectedGoal.id, targetDate: selectedDs })}
-                          style={{ padding: "6px 10px", borderRadius: 20, border: "1px solid #d1d5db", background: "#fff", fontSize: 12, fontWeight: 600, color: "#6b7280", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" as const }}
-                          title="別日にコピー"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-                          </svg>
-                          コピー
-                        </button>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={cancelEdit} style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, fontWeight: 600, color: "#6b7280", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" as const }}>キャンセル</button>
-                      <button onClick={() => saveEdit(selectedGoal.id)} disabled={!isDirty || !canEdit} style={{ padding: "6px 12px", borderRadius: 20, border: "none", background: isDirty && canEdit ? "#13AE67" : "#e5e7eb", fontSize: 12, fontWeight: 700, color: isDirty && canEdit ? "#fff" : "#9ca3af", cursor: isDirty && canEdit ? "pointer" : "default", fontFamily: "inherit", whiteSpace: "nowrap" as const, transition: "background 0.2s, color 0.2s" }}>保存する</button>
-                    </div>
-                  </div>
-                </>
-              ) : (
+              {!selectedGoal && (
                 <>
                   {canEdit && (
                     <div style={{ paddingTop: 4 }}>
@@ -1900,32 +1903,13 @@ const DailyGoalPage: React.FC = () => {
                               maxLength={TITLE_MAX}
                               value={newTitle}
                               onChange={(e) => setNewTitle(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === "Enter" && newTitle.trim()) addGoal(); if (e.key === "Escape") { setNewTitle(""); setNewPlannedMin(0); setNewFormOpen(false); } }}
+                              onKeyDown={(e) => { if (e.key === "Enter" && newTitle.trim()) addGoal(); if (e.key === "Escape") { setNewTitle(""); setNewFormOpen(false); } }}
                               placeholder="目標のタイトルを入力..."
                               style={{ width: "100%", fontSize: 14, fontWeight: 600, border: "none", borderBottom: "2px solid #13AE67", outline: "none", background: "transparent", fontFamily: "inherit", padding: "4px 0", boxSizing: "border-box" as const, color: "#13AE67" }}
                             />
                           </div>
-                          <div style={{ marginBottom: 12 }}>
-                            <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, display: "block", marginBottom: 6 }}>予定時間</label>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              {[15, 30, 60, 90, 120].map((min) => (
-                                <button key={min} type="button"
-                                  onClick={() => setNewPlannedMin((p) => p === min ? 0 : min)}
-                                  style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 8, border: "1px solid #e5e7eb", cursor: "pointer", fontFamily: "inherit", background: newPlannedMin === min ? "#13AE67" : "#fff", color: newPlannedMin === min ? "#fff" : "#6b7280" }}
-                                >{fmtDuration(min)}</button>
-                              ))}
-                              <input type="number" min={0} max={480} step={5}
-                                value={newPlannedMin || ""}
-                                onChange={(e) => setNewPlannedMin(Math.max(0, Math.min(480, Number(e.target.value) || 0)))}
-                                placeholder="分"
-                                style={{ width: 72, fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "4px 6px", outline: "none", fontFamily: "inherit", color: "#374151", textAlign: "right" as const }}
-                              />
-                              <span style={{ fontSize: 11, color: "#9ca3af" }}>分</span>
-                              {newPlannedMin > 0 && <span style={{ fontSize: 12, color: "#13AE67", fontWeight: 700 }}>{fmtDuration(newPlannedMin)}</span>}
-                            </div>
-                          </div>
                           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                            <button onClick={() => { setNewTitle(""); setNewPlannedMin(0); setNewFormOpen(false); }} style={{ padding: "6px 16px", borderRadius: 20, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, fontWeight: 600, color: "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>キャンセル</button>
+                            <button onClick={() => { setNewTitle(""); setNewFormOpen(false); }} style={{ padding: "6px 16px", borderRadius: 20, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, fontWeight: 600, color: "#6b7280", cursor: "pointer", fontFamily: "inherit" }}>キャンセル</button>
                             <button onClick={addGoal} disabled={!newTitle.trim()} style={{ padding: "6px 16px", borderRadius: 20, border: "none", background: newTitle.trim() ? "#13AE67" : "#e5e7eb", fontSize: 12, fontWeight: 700, color: newTitle.trim() ? "#fff" : "#9ca3af", cursor: newTitle.trim() ? "pointer" : "default", fontFamily: "inherit" }}>追加する</button>
                           </div>
                         </div>
@@ -1938,7 +1922,6 @@ const DailyGoalPage: React.FC = () => {
             </div>
 
           </div>
-        </div>
 
       </div>
     </div>

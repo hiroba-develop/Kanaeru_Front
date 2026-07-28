@@ -830,7 +830,7 @@ const Settings: React.FC = () => {
 
             <div className="space-y-4">
               <p className="text-sm text-text/60">
-                会社のSlackワークスペースと連携すると、Slack上で <span className="font-mono text-text/80">@kanaeru</span> にメンションして目標を投稿するだけで、日々の目標に自動で登録されます。
+                Slackワークスペースと連携すると、Slack上で <span className="font-mono text-text/80">@kanaeru</span> にメンションして目標を投稿するだけで、日々の目標に自動で登録されます。
               </p>
               <p className="text-xs text-text/50">
                 例：<span className="font-mono">@kanaeru ・資料を仕上げる ・MTG準備</span>
@@ -922,15 +922,21 @@ const Settings: React.FC = () => {
                 <summary className="cursor-pointer select-none text-sm font-medium px-3 py-2" style={{ color: "#78620a" }}>
                   「インストールする権限がありません」と表示された場合
                 </summary>
-                <div className="space-y-2 px-3 pb-3 text-sm" style={{ color: "#78620a" }}>
+                <div className="space-y-3 px-3 pb-3 text-sm" style={{ color: "#78620a" }}>
                   <p>
-                    Slackワークスペースの設定によっては、アプリのインストールに管理者の許可が必要な場合があります。以下の手順でお試しください。
+                    Slackワークスペースの設定によっては、アプリのインストールに管理者の許可が必要な場合があります。
+                    <br />
+                    以下の手順でお試しください。
                   </p>
                   <p>
-                    ①「Slackと連携する」を押してリンクを発行し、コピーしてワークスペースの管理者に送ってください（管理者はkanaeruアカウントを持っている必要はありません。リンクは24時間有効です）。
+                    ①「Slackと連携する」を押してリンクを発行し、コピーしてワークスペースの管理者に送ってください。
+                    <br />
+                    ※管理者はkanaeruアカウントを持っている必要はありません。リンクは24時間有効です。
                   </p>
                   <p>
-                    ②管理者が許可した後、あらためてご自身で「Slackと連携する」を押し直してください。これで、あなた自身のSlackアカウントが正しく連携されます。
+                    ②管理者が許可した後、あらためてご自身で「Slackと連携する」を押し直してください。
+                    <br />
+                    これで、あなた自身のSlackアカウントが正しく連携されます。
                   </p>
                 </div>
               </details>
